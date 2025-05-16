@@ -158,8 +158,8 @@ fn main() -> Status {
                 "LZMA"
             } else if guid == TIANO_COMPRESS_GUID {
                 "TIANO"
-            } else if guid == AMI_ROM_LAYOUT_GUID {
-                "AMI ROM LAYOUT"
+            //} else if guid == AMI_ROM_LAYOUT_GUID {
+            //    "AMI ROM LAYOUT"
             } else {
                 &guid.to_string()
             };
