@@ -4,7 +4,7 @@ use uefi::{
     proto::console::gop::{BltOp, BltPixel, BltRegion, GraphicsOutput},
 };
 
-struct Buffer {
+pub struct Buffer {
     width: usize,
     height: usize,
     pixels: Vec<BltPixel>,
@@ -12,12 +12,18 @@ struct Buffer {
 
 impl Buffer {
     /// Create a new `Buffer`.
-    fn new(width: usize, height: usize) -> Self {
+    pub fn new(width: usize, height: usize) -> Self {
         Buffer {
             width,
             height,
             pixels: alloc::vec![BltPixel::new(0, 0, 0); width * height],
         }
+    }
+
+    /// Create a new `Buffer` with the current resolution config.
+    pub fn current() -> Self {
+        let (w, h) = get_resolution();
+        Self::new(w, h)
     }
 
     /// Get a single pixel.
@@ -51,6 +57,31 @@ impl Buffer {
             dims: (1, 1),
         })
     }
+
+    pub fn rect(
+        &mut self,
+        gop: &mut GraphicsOutput,
+        x: usize,
+        y: usize,
+        w: usize,
+        h: usize,
+        rgb: (u8, u8, u8),
+    ) -> Result<(), uefi::Error> {
+        for p in self.pixels.as_mut_slice() {
+            p.red = rgb.0;
+            p.green = rgb.1;
+            p.blue = rgb.2;
+        }
+        gop.blt(BltOp::BufferToVideo {
+            buffer: &self.pixels,
+            src: BltRegion::SubRectangle {
+                coords: (x, y),
+                px_stride: w,
+            },
+            dest: (x, y),
+            dims: (w, h),
+        })
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -79,20 +110,4 @@ pub fn get_resolution() -> (usize, usize) {
         .unwrap()
     };
     gop.current_mode_info().resolution()
-}
-
-pub fn idk() {
-    let gop_handle = boot::get_handle_for_protocol::<GraphicsOutput>().unwrap();
-    let mut gop = unsafe {
-        boot::open_protocol::<GraphicsOutput>(
-            OpenProtocolParams {
-                handle: gop_handle,
-                agent: boot::image_handle(),
-                controller: None,
-            },
-            OpenProtocolAttributes::GetProtocol,
-        )
-        .unwrap()
-    };
-    gop.frame_buffer();
 }

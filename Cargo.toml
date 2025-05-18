@@ -3,5 +3,8 @@ name = "uefi-rust"
 version = "0.1.0"
 edition = "2024"
 
+[toolchain]
+targets = ["aarch64-unknown-uefi", "i686-unknown-uefi", "x86_64-unknown-uefi"]
+
 [dependencies]
 uefi = { version = "0.34.1", features = ["panic_handler", "alloc", "global_allocator"] }

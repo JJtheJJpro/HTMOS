@@ -13,16 +13,9 @@ use alloc::{
 };
 //use custon_guid::AMI_ROM_LAYOUT_GUID;
 use uefi::{
-    CStr16, CString16,
-    fs::FileSystem,
-    prelude::*,
-    print, println, system,
-    table::cfg::{
-        ACPI_GUID, ACPI2_GUID, DEBUG_IMAGE_INFO_GUID, DXE_SERVICES_GUID, ESRT_GUID,
-        HAND_OFF_BLOCK_LIST_GUID, LZMA_COMPRESS_GUID, MEMORY_STATUS_CODE_RECORD_GUID,
-        MEMORY_TYPE_INFORMATION_GUID, PROPERTIES_TABLE_GUID, SMBIOS_GUID, SMBIOS3_GUID,
-        TIANO_COMPRESS_GUID,
-    },
+    boot::{MemoryType, OpenProtocolAttributes, OpenProtocolParams}, fs::FileSystem, prelude::*, print, println, proto::console::gop::GraphicsOutput, system, table::cfg::{
+        ACPI2_GUID, ACPI_GUID, DEBUG_IMAGE_INFO_GUID, DXE_SERVICES_GUID, ESRT_GUID, HAND_OFF_BLOCK_LIST_GUID, LZMA_COMPRESS_GUID, MEMORY_STATUS_CODE_RECORD_GUID, MEMORY_TYPE_INFORMATION_GUID, PROPERTIES_TABLE_GUID, SMBIOS3_GUID, SMBIOS_GUID, TIANO_COMPRESS_GUID
+    }, CStr16, CString16
 };
 
 // helper function:
@@ -209,5 +202,31 @@ fn main() -> Status {
     };
     println!("{input}");
 
+    let gop_handle = boot::get_handle_for_protocol::<GraphicsOutput>().unwrap();
+    let mut gop = unsafe {
+        boot::open_protocol::<GraphicsOutput>(
+            OpenProtocolParams {
+                handle: gop_handle,
+                agent: boot::image_handle(),
+                controller: None,
+            },
+            OpenProtocolAttributes::GetProtocol,
+        )
+        .unwrap()
+    };
+
+    let mut screen = ui::Buffer::current();
+    screen.rect(&mut gop, 0, 0, w, h, (0, 255, 0)).unwrap();
+    boot::stall(5_000_000);
+    screen.rect(&mut gop, 0, 0, w, h, (0, 0, 0)).unwrap();
+
+    console::clear().unwrap();
+    println!("test1");
+    drop(screen);
+    println!("test2");
+    drop(gop);
+    println!("test3");
+
+    //unsafe { boot::exit_boot_services(MemoryType::LOADER_DATA); }
     Status::SUCCESS
 }
