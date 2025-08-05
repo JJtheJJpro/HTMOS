@@ -1,0 +1,11 @@
+L: &'input str = "<";
+R: &'input str = ">";
+LETTERS: &'input str = r"[a-zA-Z]+";
+LOWER: &'input str = r"[a-z]+";
+TAGATTR: &'input str = <LETTERS> "=" <LETTERS>;
+TAGSINGLE: &'input str = L <LOWER> <TAGATTR> "/" R;
+TAGBEGIN: &'input str = L <LOWER> <TAGATTR> R;
+TAGEND: &'input str = L "/" <LOWER> <TAGATTR> R;
+TAG: &'input str = {
+    
+};

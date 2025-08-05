@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+mod html;
 mod kernel;
 
 use uefi::{
