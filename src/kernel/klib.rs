@@ -1,5 +1,5 @@
-use core::ptr::write_volatile;
-use uefi::proto::console::gop::PixelFormat;
+use core::{hint, ptr::write_volatile};
+use r_efi::protocols::graphics_output::{self, GraphicsPixelFormat};
 use x86_64::instructions::port::Port;
 
 /// A minimal 8×8 ASCII font (first 128 chars). Here we include only ‘ ’ through ‘~’
@@ -470,19 +470,19 @@ pub(crate) fn put_pixel(
     x: usize,
     y: usize,
     color: [u8; 3],
-    format: PixelFormat,
+    format: GraphicsPixelFormat,
 ) {
     let bytes_per_pixel = 4; // we’ll assume 32-bpp (you can read info.pixel_format().bytes_per_pixel())
     let offset = y * pitch * bytes_per_pixel + x * bytes_per_pixel;
     let px = unsafe { fb_ptr.add(offset) };
     unsafe {
         match format {
-            PixelFormat::Rgb => {
+            graphics_output::PIXEL_RED_GREEN_BLUE_RESERVED_8_BIT_PER_COLOR => {
                 write_volatile(px, color[0]); // R
                 write_volatile(px.add(1), color[1]); // G
                 write_volatile(px.add(2), color[2]); // B
             }
-            PixelFormat::Bgr => {
+            graphics_output::PIXEL_BLUE_GREEN_RED_RESERVED_8_BIT_PER_COLOR => {
                 write_volatile(px, color[2]); // B
                 write_volatile(px.add(1), color[1]); // G
                 write_volatile(px.add(2), color[0]); // R
@@ -493,7 +493,7 @@ pub(crate) fn put_pixel(
 }
 
 /// Draw one 8×8 character at cell (cx, cy), where each cell is 8×8 pixels
-pub(super) fn draw_char(
+pub fn draw_char(
     fb_ptr: *mut u8,
     pitch: usize,
     cx: usize,
@@ -501,7 +501,7 @@ pub(super) fn draw_char(
     ch: u8,
     fg: [u8; 3],
     bg: [u8; 3],
-    format: PixelFormat,
+    format: GraphicsPixelFormat,
 ) {
     let glyph = FONT8X8[ch as usize];
     let base_x = cx * 8;
@@ -607,13 +607,14 @@ pub fn read_line(buf: &mut [u8]) -> usize {
     loop {
         let c = read_ascii();
         match c {
-            0 => continue,            // unmapped or key‐release
+            0 => continue, // unmapped or key‐release
             b'\r' => {
                 // echo newline
                 crate::println!();
                 break;
             }
-            8 => {                    // Backspace
+            8 => {
+                // Backspace
                 if len > 0 {
                     len -= 1;
                     // erase on screen
@@ -624,11 +625,35 @@ pub fn read_line(buf: &mut [u8]) -> usize {
                 buf[len] = ch;
                 len += 1;
                 // echo
-                let s = unsafe { core::str::from_utf8_unchecked(&buf[len-1..len]) };
+                let s = unsafe { core::str::from_utf8_unchecked(&buf[len - 1..len]) };
                 crate::print!("{s}");
             }
             _ => {} // buffer full: drop extra chars
         }
     }
     len
+}
+
+pub fn rdtsc() -> u64 {
+    let low: u32;
+    let high: u32;
+    unsafe {
+        core::arch::asm!(
+            "rdtsc",
+            out("eax") low,
+            out("edx") high,
+            options(nomem, nostack, preserves_flags),
+        );
+    }
+    ((high as u64) << 32) | (low as u64)
+}
+
+const CPU_FREQ_HZ: u64 = 3_000_000_000;
+
+pub fn sleep_ms(ms: u64) {
+    let ticks_to_wait = CPU_FREQ_HZ / 1_000 * ms;
+    let start = rdtsc();
+    while rdtsc().wrapping_sub(start) < ticks_to_wait {
+        hint::spin_loop();
+    }
 }
