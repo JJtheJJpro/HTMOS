@@ -1,0 +1,2 @@
+As for right now, I will not make an official BIOS bootloader; I'm focusing my attention on the kernel alone.  The UEFI bootloader already took so much time.
+I promise I will make an official BIOS bootloader, but for right now, have a professional dev make one for you (devs, use the boot info found in "./kernel/src/boot_info.rs").

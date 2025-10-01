@@ -1,0 +1,13 @@
+[package]
+name = "htmkrnl"
+version = "0.1.0"
+edition = "2024"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+
+[dependencies]
+r-efi = "5.3.0"
