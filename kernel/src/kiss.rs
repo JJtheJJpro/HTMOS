@@ -1,4 +1,4 @@
-use core::panic::PanicInfo;
+use core::{cell::Cell, fmt::Write, panic::PanicInfo};
 
 use crate::boot_info::boot_info;
 
@@ -2214,28 +2214,47 @@ fn set_ascii(c: u8, px: u32, py: u32) {
 }
 
 pub struct KissConsole {
-    csx: u8,
-    csy: u8,
     px: u32,
     py: u32,
 }
 impl KissConsole {
-    pub fn new() -> Self {
-        Self {
-            csx: 10,
-            csy: 16,
-            px: 0,
-            py: 0,
+    pub const fn new() -> Self {
+        Self { px: 0, py: 0 }
+    }
+
+    fn print_ascii(&mut self, v: u8) {
+        match v {
+            b'\n' => self.py += 1,
+            b'\r' => self.px = 0,
+            _ => {
+                set_ascii(v, self.px, self.py);
+                self.px += 1;
+            }
         }
     }
-    pub fn print_ascii(&mut self, v: u8) {
-        // special chars here; otherwise...
-        set_ascii(v, self.px, self.py);
-        self.px += 1;
-    }
-    pub fn print_ascii_str(&mut self, s: &str) {
+    fn print_ascii_str(&mut self, s: &str) {
         for &b in s.as_bytes() {
             self.print_ascii(b);
         }
+    }
+
+    fn print_utf16(&mut self, v: u16) {
+        // for now
+        self.print_ascii(v as u8);
+        self.px += 1;
+    }
+    fn print_utf16_str(&mut self, s: &str) {
+        for c in s.encode_utf16() {}
+    }
+}
+impl Write for KissConsole {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        if s.is_ascii() {
+            self.print_ascii_str(s);
+        } else {
+            self.print_utf16_str(s);
+        }
+
+        Ok(())
     }
 }

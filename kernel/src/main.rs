@@ -6,6 +6,8 @@ mod boot_info;
 mod htmalloc;
 mod kiss;
 
+use core::fmt::Write;
+
 use crate::{boot_info::HTMOSBootInformation, htmalloc::HTMAlloc, kiss::KissConsole};
 
 #[global_allocator]
@@ -25,8 +27,22 @@ extern "C" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
     kiss::fill_screen(0, 0, 0);
 
     let mut kc = KissConsole::new();
+    macro_rules! print {
+        ($($arg:tt)*) => {
+            kc.write_fmt(format_args!($($arg)*)).unwrap();
+        };
+    }
+    macro_rules! println {
+        () => {
+            print!("\r\n");
+        };
+        ($($arg:tt)*) => {
+            kc.write_fmt(format_args!("{}{}", format_args!($($arg)*), "\r\n")).unwrap();
+        };
+    }
+
     //kc.print_ascii_str("!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~");
-    kc.print_ascii_str("HTMOS Pre-Alpha v0.1");
+    println!("HTMOS Pre-Alpha v0.1.1 WIP");
 
     loop {
         unsafe {
