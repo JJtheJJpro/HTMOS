@@ -1,14 +1,62 @@
-use core::{cell::Cell, fmt::Write, panic::PanicInfo};
+use core::{
+    cell::UnsafeCell,
+    fmt::{Arguments, Write},
+    panic::PanicInfo,
+};
 
 use crate::boot_info::boot_info;
 
 #[panic_handler]
-fn panic_handler(_info: &PanicInfo) -> ! {
+fn panic_handler(info: &PanicInfo) -> ! {
+    clear_screen();
     fill_screen(0xFF, 0, 0);
+    set_console_background_color(RGB::red());
+    set_console_foreground_color(RGB::white());
+    crate::println!("[PANIC]: {info}");
 
     loop {
         unsafe {
             core::arch::asm!("hlt");
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RGB {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+impl RGB {
+    pub const fn black() -> Self {
+        Self { r: 0, g: 0, b: 0 }
+    }
+    pub const fn white() -> Self {
+        Self {
+            r: 0xFF,
+            g: 0xFF,
+            b: 0xFF,
+        }
+    }
+    pub const fn red() -> Self {
+        Self {
+            r: 0xFF,
+            g: 0,
+            b: 0,
+        }
+    }
+    pub const fn green() -> Self {
+        Self {
+            r: 0,
+            g: 0xFF,
+            b: 0,
+        }
+    }
+    pub const fn blue() -> Self {
+        Self {
+            r: 0,
+            g: 0,
+            b: 0xFF,
         }
     }
 }
@@ -18,7 +66,7 @@ const ABGR: u32 = 1;
 //const BIT_MASK: u32 = 2;
 //const BLT_ONLY: u32 = 3;
 //const FORMAT_MAX: u32 = 4;
-pub fn set_pixel(x: u32, y: u32, r: u8, g: u8, b: u8) -> Result<(), &'static str> {
+pub fn set_pixel(x: u32, y: u32, color: RGB) -> Result<(), &'static str> {
     let bi = boot_info();
 
     if x > bi.framebuffer_width {
@@ -28,7 +76,7 @@ pub fn set_pixel(x: u32, y: u32, r: u8, g: u8, b: u8) -> Result<(), &'static str
     }
 
     let fb_addr = bi.framebuffer_addr as *mut u32;
-    let fb_bpp = bi.framebuffer_bpp;
+    let fb_bpp = bi.framebuffer_format;
     let fb_pitch = bi.framebuffer_pitch;
 
     let offset = y * fb_pitch * fb_bpp + x * fb_bpp;
@@ -37,10 +85,14 @@ pub fn set_pixel(x: u32, y: u32, r: u8, g: u8, b: u8) -> Result<(), &'static str
         match fb_bpp {
             // this is assuming the machine is little-endian
             ARGB => {
-                px.write_volatile(((r as u32) << 16) | ((g as u32) << 8) | (b as u32));
+                px.write_volatile(
+                    ((color.b as u32) << 16) | ((color.g as u32) << 8) | (color.r as u32),
+                );
             }
             ABGR => {
-                px.write_volatile(((b as u32) << 16) | ((g as u32) << 8) | (r as u32));
+                px.write_volatile(
+                    ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32),
+                );
             }
             _ => {
                 panic!("unknown fb bpp value of {fb_bpp}");
@@ -54,7 +106,7 @@ pub fn fill_screen(r: u8, g: u8, b: u8) {
     let bi = boot_info();
 
     let fb_addr = bi.framebuffer_addr as *mut u32;
-    let fb_bpp = bi.framebuffer_bpp;
+    let fb_bpp = bi.framebuffer_format;
     let fb_width = bi.framebuffer_width;
     let fb_height = bi.framebuffer_height;
     let fb_pitch = bi.framebuffer_pitch;
@@ -67,10 +119,77 @@ pub fn fill_screen(r: u8, g: u8, b: u8) {
                 match fb_bpp {
                     // this is assuming the machine is little-endian
                     ARGB => {
-                        px.write_volatile(((r as u32) << 16) | ((g as u32) << 8) | (b as u32));
+                        px.write_volatile(((b as u32) << 16) | ((g as u32) << 8) | (r as u32));
                     }
                     ABGR => {
-                        px.write_volatile(((b as u32) << 16) | ((g as u32) << 8) | (r as u32));
+                        px.write_volatile(((r as u32) << 16) | ((g as u32) << 8) | (b as u32));
+                    }
+                    _ => {
+                        panic!("unknown fb bpp value of {fb_bpp}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn clear_screen() {
+    let bi = boot_info();
+
+    let fb_addr = bi.framebuffer_addr as *mut u32;
+    let fb_bpp = bi.framebuffer_format;
+    let fb_width = bi.framebuffer_width;
+    let fb_height = bi.framebuffer_height;
+    let fb_pitch = bi.framebuffer_pitch;
+
+    for y in 0..fb_height {
+        for x in 0..fb_width {
+            let offset = y * fb_pitch * fb_bpp + x * fb_bpp;
+            let px = unsafe { fb_addr.add(offset as usize) };
+            unsafe {
+                match fb_bpp {
+                    // this is assuming the machine is little-endian
+                    ARGB => {
+                        px.write_volatile(0);
+                    }
+                    ABGR => {
+                        px.write_volatile(0);
+                    }
+                    _ => {
+                        panic!("unknown fb bpp value of {fb_bpp}");
+                    }
+                }
+            }
+        }
+    }
+
+    unsafe {
+        (&mut *GBL_CONSOLE.inner.get()).px = 0;
+        (&mut *GBL_CONSOLE.inner.get()).py = 0;
+    }
+}
+
+pub fn clear_line(line: u8) {
+    let line = line as u32;
+    let bi = boot_info();
+
+    let fb_addr = bi.framebuffer_addr as *mut u32;
+    let fb_bpp = bi.framebuffer_format;
+    let fb_width = bi.framebuffer_width;
+    let fb_pitch = bi.framebuffer_pitch;
+
+    for y in line..(line + 20) {
+        for x in 0..fb_width {
+            let offset = y * fb_pitch * fb_bpp + x * fb_bpp;
+            let px = unsafe { fb_addr.add(offset as usize) };
+            unsafe {
+                match fb_bpp {
+                    // this is assuming the machine is little-endian
+                    ARGB => {
+                        px.write_volatile(0);
+                    }
+                    ABGR => {
+                        px.write_volatile(0);
                     }
                     _ => {
                         panic!("unknown fb bpp value of {fb_bpp}");
@@ -2199,27 +2318,43 @@ const CONSOLE_ASCII: [[u16; 20]; 0xFF] = {
     r
 };
 
-fn set_ascii(c: u8, px: u32, py: u32) {
+fn set_ascii(
+    c: u8,
+    px: u32,
+    py: u32,
+    front_color: RGB,
+    back_color: RGB,
+) -> Result<(), &'static str> {
     let d = CONSOLE_ASCII[c as usize];
     for y in 0..20 {
         for x in 0..10 {
             let b = (d[y] >> (9 - x)) & 1 != 0;
             if b {
-                set_pixel(px * 10 + x, py * 20 + y as u32, 0xFF, 0xFF, 0xFF).unwrap();
+                set_pixel(px * 10 + x, py * 20 + y as u32, front_color)?;
             } else {
-                set_pixel(px * 10 + x, py * 20 + y as u32, 0, 0, 0).unwrap();
+                set_pixel(px * 10 + x, py * 20 + y as u32, back_color)?;
             }
         }
     }
+
+    Ok(())
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct KissConsole {
     px: u32,
     py: u32,
+    fc: RGB,
+    bc: RGB,
 }
 impl KissConsole {
     pub const fn new() -> Self {
-        Self { px: 0, py: 0 }
+        Self {
+            px: 0,
+            py: 0,
+            fc: RGB::white(),
+            bc: RGB::black(),
+        }
     }
 
     fn print_ascii(&mut self, v: u8) {
@@ -2227,7 +2362,11 @@ impl KissConsole {
             b'\n' => self.py += 1,
             b'\r' => self.px = 0,
             _ => {
-                set_ascii(v, self.px, self.py);
+                if let Err(e) = set_ascii(v, self.px, self.py, self.fc, self.bc) {
+                    if e == "y goes beyond height limit" {
+                        panic!("nope");
+                    }
+                }
                 self.px += 1;
             }
         }
@@ -2257,4 +2396,40 @@ impl Write for KissConsole {
 
         Ok(())
     }
+}
+
+pub fn set_console_foreground_color(color: RGB) {
+    unsafe { &mut *GBL_CONSOLE.inner.get() }.fc = color;
+}
+pub fn set_console_background_color(color: RGB) {
+    unsafe { &mut *GBL_CONSOLE.inner.get() }.bc = color;
+}
+
+struct StaticCell<T> {
+    inner: UnsafeCell<T>,
+}
+unsafe impl<T> Sync for StaticCell<T> {}
+static GBL_CONSOLE: StaticCell<KissConsole> = StaticCell {
+    inner: UnsafeCell::new(KissConsole::new()),
+};
+
+pub fn print_helper(args: Arguments) {
+    unsafe { &mut *GBL_CONSOLE.inner.get() }
+        .write_fmt(args)
+        .unwrap();
+}
+#[macro_export]
+macro_rules! print {
+    ($($arg:tt)*) => {
+        crate::kiss::print_helper(format_args!($($arg)*));
+    };
+}
+#[macro_export]
+macro_rules! println {
+    () => {
+        print!("\r\n");
+    };
+    ($($arg:tt)*) => {
+        crate::kiss::print_helper(format_args!("{}{}", format_args!($($arg)*), "\r\n"));
+    };
 }

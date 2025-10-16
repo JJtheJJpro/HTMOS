@@ -3,11 +3,10 @@
 #![no_std]
 #![no_main]
 
-mod bootinfo;
 mod helper;
 
-use bootinfo::BootInfo;
-use core::{ptr::null_mut, sync::atomic::Ordering, u64, usize};
+use htmos_boot_info::HTMOSBootInformation;
+use core::{ptr::null_mut, sync::atomic::Ordering, usize};
 use elf::{ElfBytes, endian::AnyEndian};
 use r_efi::{
     efi::{self, ALLOCATE_ADDRESS, Handle, LOADER_DATA, Status, SystemTable},
@@ -67,7 +66,7 @@ pub extern "C" fn efi_main(h: Handle, st: *mut SystemTable) -> Status {
     let gop_mode = unsafe { &mut *gop.mode };
 
     let fb_addr = gop_mode.frame_buffer_base;
-    let _fb_size = gop_mode.frame_buffer_size; // I'll probably need this later...
+    let fb_size = gop_mode.frame_buffer_size;
     let gop_info = unsafe { &mut *gop_mode.info };
     let pixel_format = gop_info.pixel_format;
     let pitch = gop_info.pixels_per_scan_line;
@@ -202,22 +201,23 @@ pub extern "C" fn efi_main(h: Handle, st: *mut SystemTable) -> Status {
         Err(s) => return s,
     };
 
-    let kentry: extern "C" fn(*const BootInfo) = unsafe { core::mem::transmute(kernel_pentry) };
+    let kentry: extern "C" fn(*const HTMOSBootInformation) = unsafe { core::mem::transmute(kernel_pentry) };
 
-    let asdf = BootInfo {
-        memory_map_addr: mmap as u64,
-        memory_map_len: mem_map_size as u64,
-        memory_desc_size: desc_size as u64,
-        framebuffer_addr: fb_addr,
+    let asdf = HTMOSBootInformation {
+        boot_mode: 1,
+        memory_map_addr: mmap as usize,
+        memory_map_size: mem_map_size,
+        memory_desc_size: desc_size,
+        framebuffer_addr: fb_addr as usize,
+        framebuffer_size: fb_size,
         framebuffer_width: rw,
         framebuffer_height: rh,
         framebuffer_pitch: pitch,
-        framebuffer_bpp: pixel_format,
-        boot_mode: 1,
-        reserved: st as u32,
+        framebuffer_format: pixel_format,
+        more_info: st as usize,
     };
 
-    kentry(&asdf as *const BootInfo);
+    kentry(&asdf as *const HTMOSBootInformation);
 
     /*
 

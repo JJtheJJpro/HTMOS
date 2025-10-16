@@ -5,28 +5,7 @@
 // I will eventually have support for BIOS.
 
 use core::ptr::null;
-
-#[repr(C)]
-pub struct HTMOSBootInformation {
-    /// Physical memory map (array of entries)
-    pub memory_map_addr: u64,
-    pub memory_map_len: u64,
-    pub memory_desc_size: u64,
-
-    /// Framebuffer base address
-    pub framebuffer_addr: u64,
-    /// Width, height, pitch (stride in bytes), and pixel format
-    pub framebuffer_width: u32,
-    pub framebuffer_height: u32,
-    pub framebuffer_pitch: u32,
-    pub framebuffer_bpp: u32, // bits per pixel
-
-    /// Boot mode indicator (0 = BIOS, 1 = UEFI)
-    pub boot_mode: u32,
-
-    /// Reserved for BIOS, System Table pointer for UEFI (should be small enough to fit u32)
-    pub reserved: u32,
-}
+use htmos_boot_info::HTMOSBootInformation;
 
 static mut BOOT_INFO: *const HTMOSBootInformation = null();
 pub fn boot_info() -> &'static HTMOSBootInformation {

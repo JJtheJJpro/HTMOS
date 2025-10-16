@@ -1,4 +1,6 @@
-ENTRY(htmkrnl)
+ENTRY(_start)
+
+STACK_SIZE = 32K;
 
 PHDRS {
     text PT_LOAD FLAGS(5);
@@ -7,9 +9,10 @@ PHDRS {
 
 SECTIONS
 {
-    /* Load at 2 MiB */
+    /* Load at 1 MiB */
     . = 1M;
 
+    __kernel_start = .;
     .text : ALIGN(4K) {
         *(.text._start)   /* ensure _start is here */
         *(.text .text.*)
@@ -26,5 +29,13 @@ SECTIONS
     .bss : ALIGN(4K) {
         *(.bss .bss.*)
         *(COMMON)
+    } :data
+    __kernel_end = .;
+
+    .stack (NOLOAD) : ALIGN(4K)
+    {
+        __stack_start = .;
+        . += STACK_SIZE;
+        __stack_end = .;
     } :data
 }
