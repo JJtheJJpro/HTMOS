@@ -2,22 +2,19 @@
 
 extern crate alloc;
 
-use crate::{
-    boot_info::boot_info,
-    cfg_tbl::{FirmwareTable, LZMA_CUSTOM_DECOMPRESS, guid_utf8_upper},
-    print, println,
-};
+use crate::{boot_info::boot_info, cfg_tbl::FirmwareTable, println};
 use core::{
     alloc::{GlobalAlloc, Layout},
     cell::Cell,
     ptr::null_mut,
 };
 use htmos_boot_info::HTMOSBootInformation;
-use r_efi::efi::{self, ConfigurationTable, MemoryDescriptor, SystemTable};
+use r_efi::efi::{self, ConfigurationTable, MemoryDescriptor, RuntimeServices, SystemTable};
 
-const ARENA_SIZE: usize = 128 * 1024;
-const MAX_SUPPORTED_ALIGN: usize = 4096;
+//const ARENA_SIZE: usize = 128 * 1024;
+//const MAX_SUPPORTED_ALIGN: usize = 4096;
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum MemoryPattern {
     /// No overlapping
     Separate,
@@ -30,6 +27,8 @@ enum MemoryPattern {
     /// Given section overlaps entire original section
     Overwrite,
 }
+
+/// Start branch means first (original) set starts first.
 const fn cmp_mem_sct(
     original_start: usize,
     original_size: usize,
@@ -68,6 +67,12 @@ const fn cmp_mem_sct(
     } else {
         MemoryPattern::Overwrite
     }
+}
+const fn end(start: usize, size: usize) -> usize {
+    start + size * 4096
+}
+const fn endt(tuple: (usize, usize)) -> usize {
+    tuple.0 + tuple.1 * 4096
 }
 
 pub struct HTMAlloc {
@@ -177,8 +182,168 @@ impl HTMAlloc {
         // Kinda looks like ReactJS in a way...
         self.mmap.set((arr, sz));
     }
-    /// Removes mark of the specified range of memory so it won't be used.  Will panic or block thread if memory is already taken.
-    fn remove_range(&self, start: usize, size: usize) {}
+    /// Organizes memory, including removing unnessessary overlaps.  Returns whether there was any change at all.
+    ///
+    /// Don't call this function often, it's intensive.
+    fn organize_mmap(&self) -> bool {
+        let (mut arr, mut sz) = self.mmap.get();
+        let mut ret = false;
+        loop {
+            let mut b = true;
+
+            let mut i = 0;
+            for window in arr[..sz].windows(2) {
+                match cmp_mem_sct(window[0].0, window[0].1, window[1].0, window[1].1) {
+                    MemoryPattern::NoChange => {
+                        arr[i + 1] = (0, 0);
+                        arr[..sz].sort_unstable_by(|(v1, _), (v2, _)| v2.cmp(v1));
+                        sz -= 1;
+                        arr[..sz].sort_unstable_by(|(v1, _), (v2, _)| v1.cmp(v2));
+                        b = false;
+                        ret = true;
+                        break;
+                    }
+                    MemoryPattern::Overwrite => {
+                        arr[i] = (0, 0);
+                        arr[..sz].sort_unstable_by(|(v1, _), (v2, _)| v2.cmp(v1));
+                        sz -= 1;
+                        arr[..sz].sort_unstable_by(|(v1, _), (v2, _)| v1.cmp(v2));
+                        b = false;
+                        ret = true;
+                        break;
+                    }
+                    MemoryPattern::Separate => {}
+                    MemoryPattern::StartBranch => {
+                        arr[i] = (
+                            window[0].0,
+                            (window[1].0 - window[0].0) / 4096 + window[1].1,
+                        );
+                        arr[i + 1] = (0, 0);
+                        arr[..sz].sort_unstable_by(|(v1, _), (v2, _)| v2.cmp(v1));
+                        sz -= 1;
+                        arr[..sz].sort_unstable_by(|(v1, _), (v2, _)| v1.cmp(v2));
+                        b = false;
+                        ret = true;
+                        break;
+                    }
+                    MemoryPattern::EndBranch => {
+                        arr[i] = (
+                            window[1].0,
+                            (window[0].0 - window[1].0) / 4096 + window[0].1,
+                        );
+                        arr[i + 1] = (0, 0);
+                        arr[..sz].sort_unstable_by(|(v1, _), (v2, _)| v2.cmp(v1));
+                        sz -= 1;
+                        arr[..sz].sort_unstable_by(|(v1, _), (v2, _)| v1.cmp(v2));
+                        b = false;
+                        ret = true;
+                        break;
+                    }
+                }
+
+                i += 1;
+            }
+
+            if b {
+                break;
+            }
+        }
+
+        self.mmap.set((arr, sz));
+
+        ret
+    }
+    /// Removes mark of the specified range of memory so it won't be used.
+    // TODO: Will panic or block thread if memory is already taken.
+    fn remove_range(&self, start: usize, size: usize) {
+        let (mut arr, mut sz) = self.mmap.get();
+
+        // Check if it's even marked available.
+        if arr
+            .iter()
+            .any(|(v1, v2)| cmp_mem_sct(start, size, *v1, *v2) != MemoryPattern::Separate)
+        {
+            let mut edit = false;
+            let mut i = 0;
+            while i < sz {
+                match cmp_mem_sct(arr[i].0, arr[i].1, start, size) {
+                    MemoryPattern::StartBranch => {
+                        edit = true;
+                    }
+                    MemoryPattern::EndBranch => {}
+                    MemoryPattern::NoChange => {
+                        if edit == true {
+                            // Memory map is janked up?
+                            if self.organize_mmap() {
+                                // Yup.  Restart.
+                                i = 0;
+                                continue;
+                            } else {
+                                unreachable!(
+                                    "NoChange memory comparison when an edit in remove comparisons happened previously."
+                                );
+                            }
+                        }
+
+                        // Four scenarios:
+                        if arr[i].1 == size {
+                            // Remove complete section
+                            arr[i] = (0, 0);
+                            arr[..sz].sort_unstable_by(|(v1, _), (v2, _)| v2.cmp(v1));
+                            sz -= 1;
+                            arr[..sz].sort_unstable_by(|(v1, _), (v2, _)| v1.cmp(v2));
+                        } else if arr[i].0 == start {
+                            arr[i] = (end(start, size), arr[i].1 - size);
+                        } else if endt(arr[i]) == end(start, size) {
+                            arr[i] = (arr[i].0, arr[i].1 - size);
+                        } else {
+                            // Josh is the best (Elaina said so).
+
+                            // This gets complicated: we have to split the section into two sections.
+                            // Since this involves reoganizing the map, we'll call that and directly return the function.
+                            arr[sz] = (
+                                end(start, size),
+                                ((endt(arr[i]) - end(start, size)) + 0xFFF) / 0x1000,
+                            );
+                            sz += 1;
+                            arr[i] = (arr[i].0, ((start - arr[i].0) + 0xFFF) / 0x1000);
+                            arr[..sz].sort_unstable_by(|(v1, _), (v2, _)| v1.cmp(v2));
+                            return;
+                        }
+
+                        // This is a special "one and done" case.  Exit the loop.
+                        break;
+                    }
+                    MemoryPattern::Overwrite => {
+                        // Explanation at end of this branch
+                        edit = true;
+                        let t = arr[i];
+
+                        // Completely overwrites the section: remove complete section
+                        arr[i] = (0, 0);
+                        arr[..sz].sort_unstable_by(|(v1, _), (v2, _)| v2.cmp(v1));
+                        sz -= 1;
+                        arr[..sz].sort_unstable_by(|(v1, _), (v2, _)| v1.cmp(v2));
+
+                        // If the calculated end for both sections are equal, no need to move on: end of given section.
+                        // Otherwise, given section continues pass current section: move on.
+                        if start + size * 4096 == t.0 + t.1 * 4096 {
+                            break;
+                        }
+                    }
+                    MemoryPattern::Separate => {
+                        // If an edit occured, there is no reason to move on: we passed the given section completely.
+                        if edit {
+                            break;
+                        }
+                    }
+                }
+
+                i += 1;
+            }
+            self.mmap.set((arr, sz));
+        }
+    }
     /// This will perform real-time action after the boot information is handled correctly.
     ///
     /// This will go through each memory chunk, parse all config tables given, and mark free as much as possible.
@@ -340,16 +505,96 @@ impl HTMAlloc {
         {
             let bi_start = bi as *const _ as usize;
             let bi_size = size_of::<HTMOSBootInformation>();
-            self.remove_range(bi_start, bi_size);
+            self.remove_range(bi_start, (bi_size + 0xFFF) / 0x1000);
         }
         // Framebuffer
         if bi.framebuffer_addr > 0 {
-            
+            self.remove_range(bi.framebuffer_addr, (bi.framebuffer_size + 0xFFF) / 0x1000);
         }
+        // Memory Map
+        self.remove_range(bi.memory_map_addr, (bi.memory_map_size + 0xFFF) / 0x1000);
         // More Info pointer
         {
             if bi.boot_mode == 1 {
+                // UEFI
+                let st = bi.more_info as *mut SystemTable;
 
+                // System Table itself
+                self.remove_range(st as usize, (size_of::<SystemTable>() + 0xFFF) / 0x1000);
+
+                // Config Table
+                self.remove_range(
+                    unsafe { &*st }.configuration_table as usize,
+                    ((unsafe { &*st }.number_of_table_entries * size_of::<ConfigurationTable>())
+                        + 0xFFF)
+                        / 0x1000,
+                );
+
+                // Runtime Services
+                let rs = unsafe { &mut *st }.runtime_services;
+                self.remove_range(rs as usize, (size_of::<RuntimeServices>() + 0xFFF) / 0x1000);
+
+                // Here, we go through each pointer of any kind,
+                // get the size of the type of pointer,
+                // and remove it's availability mark.
+                {
+                    self.remove_range(
+                        unsafe { &*rs }.convert_pointer as usize,
+                        (size_of::<efi::RuntimeConvertPointer>() + 0xFFF) / 0x1000,
+                    );
+                    self.remove_range(
+                        unsafe { &*rs }.get_next_high_mono_count as usize,
+                        (size_of::<efi::RuntimeGetNextHighMonoCount>() + 0xFFF) / 0x1000,
+                    );
+                    self.remove_range(
+                        unsafe { &*rs }.get_next_variable_name as usize,
+                        (size_of::<efi::RuntimeGetNextVariableName>() + 0xFFF) / 0x1000,
+                    );
+                    self.remove_range(
+                        unsafe { &*rs }.get_time as usize,
+                        (size_of::<efi::RuntimeGetTime>() + 0xFFF) / 0x1000,
+                    );
+                    self.remove_range(
+                        unsafe { &*rs }.get_variable as usize,
+                        (size_of::<efi::RuntimeGetVariable>() + 0xFFF) / 0x1000,
+                    );
+                    self.remove_range(
+                        unsafe { &*rs }.get_wakeup_time as usize,
+                        (size_of::<efi::RuntimeGetWakeupTime>() + 0xFFF) / 0x1000,
+                    );
+                    self.remove_range(
+                        unsafe { &*rs }.query_capsule_capabilities as usize,
+                        (size_of::<efi::RuntimeQueryCapsuleCapabilities>() + 0xFFF) / 0x1000,
+                    );
+                    self.remove_range(
+                        unsafe { &*rs }.query_variable_info as usize,
+                        (size_of::<efi::RuntimeQueryVariableInfo>() + 0xFFF) / 0x1000,
+                    );
+                    self.remove_range(
+                        unsafe { &*rs }.reset_system as usize,
+                        (size_of::<efi::RuntimeResetSystem>() + 0xFFF) / 0x1000,
+                    );
+                    self.remove_range(
+                        unsafe { &*rs }.set_time as usize,
+                        (size_of::<efi::RuntimeSetTime>() + 0xFFF) / 0x1000,
+                    );
+                    self.remove_range(
+                        unsafe { &*rs }.set_variable as usize,
+                        (size_of::<efi::RuntimeSetVariable>() + 0xFFF) / 0x1000,
+                    );
+                    self.remove_range(
+                        unsafe { &*rs }.set_virtual_address_map as usize,
+                        (size_of::<efi::RuntimeSetVirtualAddressMap>() + 0xFFF) / 0x1000,
+                    );
+                    self.remove_range(
+                        unsafe { &*rs }.set_wakeup_time as usize,
+                        (size_of::<efi::RuntimeSetWakeupTime>() + 0xFFF) / 0x1000,
+                    );
+                    self.remove_range(
+                        unsafe { &*rs }.update_capsule as usize,
+                        (size_of::<efi::RuntimeUpdateCapsule>() + 0xFFF) / 0x1000,
+                    );
+                }
             }
         }
 

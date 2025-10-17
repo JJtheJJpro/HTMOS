@@ -31,6 +31,7 @@ use core::arch::global_asm;
 
 use crate::htmalloc::HTMAlloc;
 use htmos_boot_info::HTMOSBootInformation;
+use r_efi::efi::SystemTable;
 
 #[global_allocator]
 static HTMAS: HTMAlloc = HTMAlloc::ginit();
@@ -46,6 +47,20 @@ extern "C" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
 
     kiss::fill_screen(0, 0xFF, 0);
     kiss::fill_screen(0, 0, 0);
+
+    {
+        let bi = boot_info::boot_info();
+        if bi.boot_mode == 1 {
+            let (firmware_revision, firmware_vendor, firmware_vendor_len) = {
+                let st = unsafe { &mut *(bi.more_info as *mut SystemTable) };
+                let mut l = 0;
+                while unsafe { st.firmware_vendor.add(l).read() } != 0 {
+                    l += 1;
+                }
+                (st.firmware_revision, st.firmware_vendor, l)
+            };
+        }
+    }
 
     HTMAS.update();
 
