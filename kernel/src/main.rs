@@ -628,8 +628,8 @@ pub(crate) fn get_mmap() -> ([(usize, usize); 256], usize) {
     }
     // I don't have a specified way to include BIOS yet.
 
-    // If the first 512 bytes are marked available, remove that.
-    //mmap.rip_section(0, 512);
+    // If the first page is marked available, remove that.
+    mmap.rip_section(0, 4096);
 
     mmap
 }
@@ -671,11 +671,114 @@ extern "C" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
         vtest[0], vtest[1]
     );
     assert_eq!(sum, 2, "sum : {sum} != 2");
+    assert!(
+        vtest.iter().sum::<i32>() == 2,
+        "iter sum of {} != 2",
+        vtest.iter().sum::<i32>()
+    );
+    drop(vtest);
     println!("Test passed!");
+
+    kiss::clear_screen();
+
+    fun();
 
     loop {
         unsafe {
             core::arch::asm!("hlt");
         }
+    }
+}
+
+fn fun() {
+    use kiss::RGB;
+
+    //let bi = boot_info();
+    //let w = bi.framebuffer_width;
+    //let h = bi.framebuffer_height;
+
+    const MARKS: RGB = RGB::rgb(0x7F, 0x7F, 0x7F);
+    const TEXT: RGB = RGB::rgb(0xFF, 0xFF, 0);
+
+    draw_line(100, 100, 50, 200, MARKS);
+    draw_line(50, 200, 100, 300, MARKS);
+    draw_line(100, 300, 125, 300, MARKS);
+    draw_line(125, 300, 75, 200, MARKS);
+    draw_line(75, 200, 125, 100, MARKS);
+    draw_line(125, 100, 100, 100, MARKS);
+}
+
+fn draw_line(x0: i32, y0: i32, x1: i32, y1: i32, color: kiss::RGB) {
+    let mut x0 = x0;
+    let mut y0 = y0;
+    let dx = (x1 - x0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let dy = -(y1 - y0).abs();
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+
+    loop {
+        kiss::set_pixel(x0 as u32, y0 as u32, color).unwrap();
+        if x0 == x1 && y0 == y1 {
+            break;
+        }
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x0 += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y0 += sy;
+        }
+    }
+}
+
+fn draw_arc(cx: i32, cy: i32, radius: i32, start_deg: f32, end_deg: f32, color: kiss::RGB) {
+    let step = 0.5; // degrees per pixel step - smaller = smoother
+    let mut angle = start_deg;
+
+    while angle <= end_deg {
+        let rad = angle * core::f32::consts::PI / 180.0;
+        let x = cx + (radius as f32 * libm::cosf(rad)) as i32;
+        let y = cy + (radius as f32 * libm::sinf(rad)) as i32;
+        kiss::set_pixel(x as u32, y as u32, color).unwrap();
+        angle += step;
+    }
+}
+
+pub fn draw_ellipse_rotated(
+    cx: i32,
+    cy: i32,
+    width: f32,
+    height: f32,
+    rotation_deg: f32,
+    color: kiss::RGB,
+) {
+    let step = 0.5; // degrees per sample
+    let rx = width / 2.0;
+    let ry = height / 2.0;
+    let rot = rotation_deg * core::f32::consts::PI / 180.0;
+
+    let cos_rot = libm::cosf(rot);
+    let sin_rot = libm::sinf(rot);
+
+    let mut angle = 0.0;
+    while angle < 360.0 {
+        let rad = angle * core::f32::consts::PI / 180.0;
+
+        // Parametric ellipse (before rotation)
+        let x_unrot = rx * libm::cosf(rad);
+        let y_unrot = ry * libm::sinf(rad);
+
+        // Apply rotation matrix:
+        // [x'] = [cos -sin][x]
+        // [y']   [sin  cos][y]
+        let x = x_unrot * cos_rot - y_unrot * sin_rot;
+        let y = x_unrot * sin_rot + y_unrot * cos_rot;
+
+        kiss::set_pixel((cx + x as i32) as u32, (cy + y as i32) as u32, color).unwrap();
+
+        angle += step;
     }
 }

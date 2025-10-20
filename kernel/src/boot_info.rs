@@ -11,9 +11,9 @@ static mut BOOT_INFO: *const HTMOSBootInformation = null();
 pub fn boot_info() -> &'static HTMOSBootInformation {
     unsafe { &*BOOT_INFO }
 }
-pub fn boot_info_exists() -> bool {
-    !unsafe { BOOT_INFO }.is_null()
-}
+//pub fn boot_info_exists() -> bool {
+//    !unsafe { BOOT_INFO }.is_null()
+//}
 pub(super) fn set_boot_info(v: *const HTMOSBootInformation) {
     if unsafe { BOOT_INFO }.is_null() {
         unsafe {

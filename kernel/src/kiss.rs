@@ -28,6 +28,9 @@ pub struct RGB {
     pub b: u8,
 }
 impl RGB {
+    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b }
+    }
     pub const fn black() -> Self {
         Self { r: 0, g: 0, b: 0 }
     }
@@ -45,14 +48,14 @@ impl RGB {
             b: 0,
         }
     }
-    pub const fn green() -> Self {
+    pub const fn _green() -> Self {
         Self {
             r: 0,
             g: 0xFF,
             b: 0,
         }
     }
-    pub const fn blue() -> Self {
+    pub const fn _blue() -> Self {
         Self {
             r: 0,
             g: 0,
@@ -169,7 +172,7 @@ pub fn clear_screen() {
     }
 }
 
-pub fn clear_line(line: u8) {
+pub fn _clear_line(line: u8) {
     let line = line as u32;
     let bi = boot_info();
 
@@ -2377,13 +2380,13 @@ impl KissConsole {
         }
     }
 
-    fn print_utf16(&mut self, v: u16) {
+    fn _print_utf16(&mut self, v: u16) {
         // for now
         self.print_ascii(v as u8);
         self.px += 1;
     }
     fn print_utf16_str(&mut self, s: &str) {
-        for c in s.encode_utf16() {}
+        for _c in s.encode_utf16() {}
     }
 }
 impl Write for KissConsole {

@@ -73,8 +73,12 @@ const fn cmp_mem_sct(
     }
 }
 
+/// The struct in place for global allocations for HTMOS.
 pub struct HTMAlloc {
     mmap: Cell<([(usize, usize); 256], usize)>,
+    /// This holds any taken memory in the mmap.
+    ///
+    /// The first element is always an "Apocolyptic Expression" - an allocated chunk for this Vec itself.
     taken: UnsafeCell<Vec<(usize, usize)>>,
 }
 impl HTMAlloc {
@@ -95,13 +99,13 @@ impl HTMAlloc {
         {
             let (mmap, sz) = self.mmap.get();
             for i in 0..sz {
-                if mmap[i].1 >= size_of::<(usize, usize)>() * 1000 {
+                if mmap[i].1 >= size_of::<(usize, usize)>() * 4096 {
                     let ptr = mmap[i].0 as *mut (usize, usize);
                     unsafe {
-                        ptr.write((mmap[i].0, size_of::<(usize, usize)>() * 1000));
+                        ptr.write((mmap[i].0, size_of::<(usize, usize)>() * 4096));
                     }
 
-                    self.set_taken(mmap[i].0, 1, 1000);
+                    self.set_taken(mmap[i].0, 1, 4096);
 
                     break;
                 }
@@ -189,12 +193,13 @@ impl HTMAlloc {
 
     /// Returns the pointer to the next available section of memory not taken, given the size requirement.
     ///
-    /// Returns 0 if size == 0.
+    /// Returns 0 if size == 0 or the update function hasn't been called yet.
     fn next_available_slot(&self, size: usize) -> usize {
         let v = self.get_taken();
         if size == 0 || v.len() == 0 {
-            crate::println!("what");
             return 0;
+        } else if v.len() > 2 {
+            self.taken_organize();
         }
         for i in 0..v.len() {
             let pstart = endt(v[i]);
@@ -215,6 +220,74 @@ impl HTMAlloc {
             v.len()
         );
     }
+
+    /// Returns an updated value to fit inside the fixed memory map.  Returns (0, 0) if no overlaps are present.
+    ///
+    /// **NOTE**: If the given section spreads over multiple memory map sections, it will go through with the first instance it finds.
+    fn reduce_size_fit_next_available_slot(&self, start: usize, size: usize) -> (usize, usize) {
+        let (mmap, sz) = self.mmap.get();
+        for i in 0..sz {
+            match cmp_mem_sct(mmap[i].0, mmap[i].1, start, size) {
+                MemoryPattern::StartBranch => return (start, endt(mmap[i]) - start),
+                MemoryPattern::EndBranch => return (mmap[i].0, end(start, size) - mmap[i].0),
+                MemoryPattern::Overwrite => return (mmap[i].0, mmap[i].1),
+                MemoryPattern::NoChange => return (start, size),
+                MemoryPattern::Separate => {}
+            }
+        }
+        (0, 0)
+    }
+
+    /// Fixes the order in 'taken'.  Returns true if changes happened.
+    fn taken_organize(&self) -> bool {
+        let v = self.get_taken_mut();
+        if !v[1..].is_sorted_by(|(v0, _), (v1, _)| v0 < v1) {
+            v[1..].sort_unstable_by(|(v0, _), (v1, _)| v0.cmp(v1));
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Returns the index of the given tuple (start and size must match exactly).  Returns None if not found.
+    fn taken_match(&self, start: usize, size: usize) -> Option<usize> {
+        self.taken_organize();
+        let v = self.get_taken();
+        if let Ok(i) = v[1..].binary_search_by(|(v, _)| v.cmp(&start)) {
+            if v[i].1 == size { Some(i) } else { None }
+        } else {
+            None
+        }
+    }
+
+    /// Returns the index of the given start ptr.  Returns None if not found.
+    fn taken_match_start(&self, start: usize) -> Option<usize> {
+        self.taken_organize();
+        let v = self.get_taken();
+        if let Ok(i) = v[1..].binary_search_by(|(v, _)| v.cmp(&start)) {
+            Some(i)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the number of additional bytes available for reallocation.
+    fn taken_more_size_available(&self, mstart: usize, msize: usize) -> usize {
+        self.taken_organize();
+        if let Some(i) = self.taken_match(mstart, msize) {
+            let v = self.get_taken();
+            let pstart = end(mstart, msize);
+            let psz = v[i + 1].0 - pstart;
+            if psz > 0 {
+                let (good_start, good_size) = self.reduce_size_fit_next_available_slot(pstart, psz);
+                if pstart == good_start { good_size } else { 0 }
+            } else {
+                0
+            }
+        } else {
+            0
+        }
+    }
 }
 
 unsafe impl Sync for HTMAlloc {}
@@ -224,28 +297,21 @@ unsafe impl GlobalAlloc for HTMAlloc {
         //crate::println!("alloc call size: {size}");
         let ptr = self.next_available_slot(size);
         self.get_taken_mut().push((ptr, size));
+        self.taken_organize();
         ptr as *mut u8
     }
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        let size = layout.pad_to_align().size();
         let ptr = unsafe { self.alloc(layout) };
         unsafe {
-            ptr.write_bytes(0, size);
+            ptr.write_bytes(0, layout.pad_to_align().size());
         }
         ptr
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         let (start, size) = (ptr as usize, layout.pad_to_align().size());
-        if self.get_taken().contains(&(start, size)) {
-            if !self.get_taken().is_sorted_by(|(v1, _), (v2, _)| v1 <= v2) {
-                self.get_taken_mut()
-                    .sort_unstable_by(|(s1, _), (s2, _)| s1.cmp(s2));
-            }
-            self.get_taken_mut().remove(
-                self.get_taken()
-                    .binary_search_by(|(v, _)| v.cmp(&start))
-                    .unwrap(),
-            );
+        let v = self.get_taken_mut();
+        if let Some(i) = self.taken_match(start, size) {
+            v.remove(i);
         }
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
@@ -256,19 +322,32 @@ unsafe impl GlobalAlloc for HTMAlloc {
             .size();
 
         //crate::println!("from {old_size} to {new_size}");
-        if old_size > new_size {
+        if old_size >= new_size {
+            if let Some(i) = self.taken_match_start(ptr as usize) {
+                self.get_taken_mut()[i] = (ptr as usize, new_size);
+            }
             return ptr;
         }
         if unsafe { &*self.taken.get() }.as_ptr() as usize == ptr as usize {
-            todo!("The 'taken' member of the kernel allocation needs more room.");
             // The 'taken' member called.  This will be some sort of "fakeout" or something.
-            //let taken_mut = unsafe { &mut *self.taken.get() };
-            //taken_mut[0] = (ptr as usize, new_size);
-            //ptr
+            let add_size = self.taken_more_size_available(ptr as usize, new_size);
+            if old_size + add_size >= new_size {
+                self.get_taken_mut()[0] = (ptr as usize, new_size);
+                ptr
+            } else {
+                let &last = self.get_taken().last().unwrap();
+                let good = self.next_valid_memory_ptr(endt(last), new_size);
+                self.get_taken_mut()[0] = (good, new_size);
+                good as *mut u8
+            }
         } else {
             unsafe {
-                if self.get_taken().last().unwrap().0 == ptr as usize {
-                    *self.get_taken_mut().last_mut().unwrap() = (ptr as usize, new_size);
+                // So, this is not recommended to do, but until I run into actual issues with this as the cause, I will keep this as is.
+                let add_size = self.taken_more_size_available(ptr as usize, new_size);
+                if old_size + add_size >= new_size {
+                    if let Some(i) = self.taken_match_start(ptr as usize) {
+                        self.get_taken_mut()[i] = (ptr as usize, new_size);
+                    }
                     ptr
                 } else {
                     let nptr = self

@@ -7,6 +7,7 @@ name = "htmkrnl"
 version = "0.0.0"
 dependencies = [
  "htmos-boot-info",
+ "libm",
  "r-efi",
  "widestring",
 ]
@@ -16,6 +17,12 @@ name = "htmos-boot-info"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2637a7e203dfe2673637d830c506e2de928e8aabd81416bc3cd8a11c45b1129"
+
+[[package]]
+name = "libm"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de"
 
 [[package]]
 name = "r-efi"
