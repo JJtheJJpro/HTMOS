@@ -12,7 +12,7 @@ This is a project never to be forgotten.
 
 # Previous Versions:
 
-## Pre-Alpha v0.1
+**Pre-Alpha v0.1**
 
 - Basically just a long but promising start.
 - Got a minimal system set up.
