@@ -1,6 +1,6 @@
 # HTMOS
 
-An Operating System, with an HTML parser, that gives a wide variety of settings for any user, new or experienced.
+An Operating System, with an HTML parser and JavaScript engine (both yet to be implemented), that gives a wide variety of settings for any user, new or experienced.
 
 This is a project never to be forgotten.
 
