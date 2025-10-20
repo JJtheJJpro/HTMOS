@@ -1,6 +1,6 @@
 [package]
 name = "htmkrnl"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2024"
 
 [profile.dev]
@@ -12,3 +12,4 @@ panic = "abort"
 [dependencies]
 htmos-boot-info = "0.9.0"
 r-efi = "5.3.0"
+widestring = { version = "1.2.1", default-features = false }

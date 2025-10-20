@@ -1,10 +1,18 @@
 # HTMOS
 
-An Operating System, with an HTML parser, that executes any cross-platform executable and gives a wide variety of settings for any user, new or experienced.
+An Operating System, with an HTML parser, that gives a wide variety of settings for any user, new or experienced.
 
-This will be a project that will not be forgotten.
+This is a project never to be forgotten.
 
-# Latest Version: Pre-Alpha v0.1
+# Latest Version: Pre-Alpha v0.2
+
+- Got a rust allocation system working (not sure what O(x) it is, but it works and that's all I care about right now).
+    - This means anything from the extern crate 'alloc' should work.
+    - However, there is a known limitation of how much allocation is made.
+
+# Previous Versions:
+
+## Pre-Alpha v0.1
 
 - Basically just a long but promising start.
 - Got a minimal system set up.
