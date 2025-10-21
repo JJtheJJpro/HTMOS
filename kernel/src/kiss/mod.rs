@@ -1,10 +1,11 @@
+//pub mod draw;
+
+use crate::boot_info::boot_info;
 use core::{
     cell::UnsafeCell,
     fmt::{Arguments, Write},
     panic::PanicInfo,
 };
-
-use crate::boot_info::boot_info;
 
 #[panic_handler]
 fn panic_handler(info: &PanicInfo) -> ! {
