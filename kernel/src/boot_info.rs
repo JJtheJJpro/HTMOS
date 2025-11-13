@@ -15,6 +15,7 @@ pub fn boot_info() -> &'static HTMOSBootInformation {
 //    !unsafe { BOOT_INFO }.is_null()
 //}
 pub(super) fn set_boot_info(v: *const HTMOSBootInformation) {
+    // Same idea as std::sync::Once.
     if unsafe { BOOT_INFO }.is_null() {
         unsafe {
             BOOT_INFO = v;

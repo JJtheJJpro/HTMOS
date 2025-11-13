@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+// SAFETY: given from linker.
 unsafe extern "C" {
     static __kernel_start: u8;
     static __kernel_end: u8;
@@ -384,6 +385,7 @@ pub(crate) fn get_mmap() -> ([(usize, usize); 256], usize) {
 
     let mut mmap = ([(0, 0); 256], 0);
 
+    // SAFETY: given the bootloader does its job; otherwise, not safe.
     let mut ptr = bi.memory_map_addr as *const MemoryDescriptor;
     let count = (bi.memory_map_size / bi.memory_desc_size) as usize;
     for _ in 0..count {
@@ -526,7 +528,7 @@ pub(crate) fn get_mmap() -> ([(usize, usize); 256], usize) {
     mmap.rip_section(bi.memory_map_addr, bi.memory_map_size);
     // More Info pointer
     if bi.boot_mode == 1 {
-        // UEFI
+        // SAFETY: UEFI turns in boot_mode as 1: more_info is the pointer to the SystemTable struct.
         let st = bi.more_info as *mut SystemTable;
 
         // System Table itself
@@ -535,6 +537,7 @@ pub(crate) fn get_mmap() -> ([(usize, usize); 256], usize) {
         let (firmware_vendor, firmware_vendor_len) = {
             let st = unsafe { &mut *st };
             let mut l = 0;
+            // SAFETY: literall given.
             while unsafe { st.firmware_vendor.add(l).read() } != 0 {
                 l += 1;
             }
@@ -550,6 +553,7 @@ pub(crate) fn get_mmap() -> ([(usize, usize); 256], usize) {
         );
         println!(
             "FIRMWARE VENDER: {}",
+            // SAFETY: UEFI firmware_vender is 16-bit-wide string.
             unsafe { widestring::U16CStr::from_ptr_str(firmware_vendor as *mut u16 as *const u16) }
                 .display()
         );
@@ -561,6 +565,7 @@ pub(crate) fn get_mmap() -> ([(usize, usize); 256], usize) {
         );
 
         // Runtime Services
+        // SAFETY: same with SystemTable.
         let rs = unsafe { &mut *st }.runtime_services;
         mmap.rip_section(rs as usize, size_of::<RuntimeServices>());
 
@@ -634,6 +639,7 @@ pub(crate) fn get_mmap() -> ([(usize, usize); 256], usize) {
     mmap
 }
 
+// SAFETY: assembly stub calls this by name directly; don't change the name.
 #[unsafe(no_mangle)]
 extern "C" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
     if info.is_null() {
@@ -650,33 +656,36 @@ extern "C" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
 
     logo();
 
-    println!(
-        "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{{|}}~"
-    );
-    println!("HTMOS Pre-Alpha v0.2.1");
+    #[cfg(debug_assertions)]
+    {
+        println!(
+            "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{{|}}~"
+        );
+        println!("HTMOS Pre-Alpha v0.2.1");
 
-    println!("Alloc Vec test");
-    let mut vtest = vec![1];
-    assert_eq!(vtest[0], 1, "vtest[0] != 1");
-    vtest.push(1);
-    let v1 = vtest[1];
-    assert_eq!(vtest[1], 1, "vtest[1] != 1");
-    let v0 = vtest[0];
-    let sumv = v0 + v1;
-    let sum = vtest[0] + vtest[1];
-    assert_eq!(
-        sumv, 2,
-        "sumv : {sumv} != 2 (v0: {v0} - v1: {v1} - vtest[0]: {} - vtest[1]: {})",
-        vtest[0], vtest[1]
-    );
-    assert_eq!(sum, 2, "sum : {sum} != 2");
-    assert!(
-        vtest.iter().sum::<i32>() == 2,
-        "iter sum of {} != 2",
-        vtest.iter().sum::<i32>()
-    );
-    drop(vtest);
-    println!("Test passed!");
+        println!("Alloc Vec test");
+        let mut vtest = vec![1];
+        assert_eq!(vtest[0], 1, "vtest[0] != 1");
+        vtest.push(1);
+        let v1 = vtest[1];
+        assert_eq!(vtest[1], 1, "vtest[1] != 1");
+        let v0 = vtest[0];
+        let sumv = v0 + v1;
+        let sum = vtest[0] + vtest[1];
+        assert_eq!(
+            sumv, 2,
+            "sumv : {sumv} != 2 (v0: {v0} - v1: {v1} - vtest[0]: {} - vtest[1]: {})",
+            vtest[0], vtest[1]
+        );
+        assert_eq!(sum, 2, "sum : {sum} != 2");
+        assert!(
+            vtest.iter().sum::<i32>() == 2,
+            "iter sum of {} != 2",
+            vtest.iter().sum::<i32>()
+        );
+        drop(vtest);
+        println!("Test passed!");
+    }
 
     loop {
         unsafe {

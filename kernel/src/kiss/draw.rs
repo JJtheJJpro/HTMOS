@@ -1,3 +1,5 @@
+//! HTMOS's Framebuffer Drawing Driver
+
 use crate::kiss::{self, RGB};
 
 pub fn draw_line(x0: i32, y0: i32, x1: i32, y1: i32, color: RGB) {

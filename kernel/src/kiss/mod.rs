@@ -1,4 +1,4 @@
-//pub mod draw;
+pub mod draw;
 
 use crate::boot_info::boot_info;
 use core::{

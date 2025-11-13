@@ -101,6 +101,7 @@ impl HTMAlloc {
             for i in 0..sz {
                 if mmap[i].1 >= size_of::<(usize, usize)>() * 4096 {
                     let ptr = mmap[i].0 as *mut (usize, usize);
+                    // SAFETY: writing on free memory.
                     unsafe {
                         ptr.write((mmap[i].0, size_of::<(usize, usize)>() * 4096));
                     }
@@ -142,14 +143,21 @@ impl HTMAlloc {
     }
 
     fn get_taken_mut(&self) -> &mut Vec<(usize, usize)> {
+        // SAFETY: pointer is always good.
         unsafe { &mut *self.taken.get() }
     }
 
     fn get_taken(&self) -> &Vec<(usize, usize)> {
+        // SAFETY: pointer is always good.
         unsafe { &*self.taken.get() }
     }
 
+    // WILL IGNORE IF LENGTH AND/OR CAPACITY ARE 0.
     fn set_taken(&self, ptr: usize, length: usize, capacity: usize) {
+        if length == 0 || capacity == 0 {
+            return;
+        }
+        // SAFETY: pointer is always good.
         unsafe {
             self.taken
                 .get()
@@ -290,18 +298,23 @@ impl HTMAlloc {
     }
 }
 
+// SAFETY: frick you.
 unsafe impl Sync for HTMAlloc {}
 unsafe impl GlobalAlloc for HTMAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let size = layout.pad_to_align().size();
         //crate::println!("alloc call size: {size}");
         let ptr = self.next_available_slot(size);
+        if ptr == 0 {
+            return 0 as *mut _;
+        }
         self.get_taken_mut().push((ptr, size));
         self.taken_organize();
         ptr as *mut u8
     }
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         let ptr = unsafe { self.alloc(layout) };
+        // SAFETY: writing 0's to free memory.
         unsafe {
             ptr.write_bytes(0, layout.pad_to_align().size());
         }
