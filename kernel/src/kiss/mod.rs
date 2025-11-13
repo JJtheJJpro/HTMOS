@@ -49,14 +49,14 @@ impl RGB {
             b: 0,
         }
     }
-    pub const fn _green() -> Self {
+    pub const fn green() -> Self {
         Self {
             r: 0,
             g: 0xFF,
             b: 0,
         }
     }
-    pub const fn _blue() -> Self {
+    pub const fn blue() -> Self {
         Self {
             r: 0,
             g: 0,

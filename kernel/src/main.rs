@@ -92,8 +92,10 @@ mod cfg_tbl;
 mod htmalloc;
 mod kiss;
 
-use crate::boot_info::boot_info;
 use crate::htmalloc::HTMAlloc;
+use crate::kiss::RGB;
+use crate::kiss::draw::Rect;
+use crate::{boot_info::boot_info, kiss::draw};
 use alloc::vec;
 use core::arch::global_asm;
 use htmos_boot_info::HTMOSBootInformation;
@@ -646,6 +648,7 @@ extern "C" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
         panic!("no boot info given");
     }
     boot_info::set_boot_info(info);
+    let bi = boot_info();
     //(unsafe { &mut *(&mut *((&*info).reserved as *mut SystemTable)).runtime_services }
     //    .reset_system)(RESET_COLD, Status::ABORTED, 0, null_mut());
 
@@ -686,6 +689,25 @@ extern "C" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
         drop(vtest);
         println!("Test passed!");
     }
+
+    draw::draw_line(
+        0,
+        0,
+        bi.framebuffer_width as i32,
+        bi.framebuffer_height as i32,
+        RGB::red(),
+    );
+    draw::draw_arc(200, 200, 50, 0f32, 90f32, RGB::green());
+    draw::draw_ellipse_rotated(500, 500, 100f32, 100f32, 0f32, RGB::blue());
+    draw::draw_rect(
+        Rect {
+            x: 10,
+            y: 600,
+            w: 100,
+            h: 50,
+        },
+        RGB::white(),
+    );
 
     loop {
         unsafe {

@@ -2,6 +2,15 @@
 
 use crate::kiss::{self, RGB};
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub w: u32,
+    pub h: u32,
+}
+
 pub fn draw_line(x0: i32, y0: i32, x1: i32, y1: i32, color: RGB) {
     let mut x0 = x0;
     let mut y0 = y0;
@@ -75,4 +84,29 @@ pub fn draw_ellipse_rotated(
 
         angle += step;
     }
+}
+
+pub fn draw_rect(rect: Rect, color: RGB) {
+    draw_line(rect.x, rect.y, rect.x, rect.y + rect.h as i32, color);
+    draw_line(
+        rect.x,
+        rect.y + rect.h as i32,
+        rect.x + rect.w as i32,
+        rect.y + rect.h as i32,
+        color,
+    );
+    draw_line(
+        rect.x + rect.w as i32,
+        rect.y + rect.h as i32,
+        rect.x + rect.w as i32,
+        rect.y,
+        color,
+    );
+    draw_line(
+        rect.x + rect.w as i32,
+        rect.y,
+        rect.x,
+        rect.y + rect.h as i32,
+        color,
+    );
 }

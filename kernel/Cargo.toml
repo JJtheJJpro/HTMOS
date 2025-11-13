@@ -11,8 +11,10 @@ panic = "abort"
 
 [dependencies]
 embedded-graphics = "0.8.1"
+fatfs = { version = "0.3.6", default-features = false }
 htmos-boot-info = "0.9.0"
 libm = { version = "0.2.15", default-features = false }
+ntfs = { version = "0.4.0", default-features = false }
 r-efi = "5.3.0"
 tinybmp = "0.6.0"
 widestring = { version = "1.2.1", default-features = false }
