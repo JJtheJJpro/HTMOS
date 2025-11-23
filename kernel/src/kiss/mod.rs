@@ -65,74 +65,76 @@ impl RGB {
     }
 }
 
-const ARGB: u32 = 0;
-const ABGR: u32 = 1;
+//const ARGB: u32 = 0;
+//const ABGR: u32 = 1;
 //const BIT_MASK: u32 = 2;
 //const BLT_ONLY: u32 = 3;
 //const FORMAT_MAX: u32 = 4;
+
+/// Order as follows: format, pointer, pitch, x, y, color
+macro_rules! pixel {
+    ($format:expr, $fb:expr, $pitch:expr, $x:expr, $y:expr, $color:expr) => {{
+        unsafe {
+            match $format {
+                0 => {
+                    // ARGB
+                    ($fb as *mut u32)
+                        .add(($y * $pitch + $x) as usize)
+                        .write_volatile(
+                            (($color.b as u32) << 16)
+                                | (($color.g as u32) << 8)
+                                | ($color.r as u32),
+                        );
+                }
+                1 => {
+                    // ABGR
+                    ($fb as *mut u32)
+                        .add(($y * $pitch + $x) as usize)
+                        .write_volatile(
+                            (($color.r as u32) << 16)
+                                | (($color.g as u32) << 8)
+                                | ($color.b as u32),
+                        );
+                }
+                _ => panic!("unknown fb bpp value of {{$format}}"),
+            }
+        }
+    }};
+}
+
 pub fn set_pixel(x: u32, y: u32, color: RGB) -> Result<(), &'static str> {
     let bi = boot_info();
 
-    if x > bi.framebuffer_width {
+    if x > bi.framebuffer_width { 
         return Err("x goes beyond width limit");
     } else if y > bi.framebuffer_height {
         return Err("y goes beyond height limit");
     }
 
-    let fb_addr = bi.framebuffer_addr as *mut u32;
-    let fb_bpp = bi.framebuffer_format;
-    let fb_pitch = bi.framebuffer_pitch;
-
-    let offset = y * fb_pitch * fb_bpp + x * fb_bpp;
-    let px = unsafe { fb_addr.add(offset as usize) };
-    unsafe {
-        match fb_bpp {
-            // this is assuming the machine is little-endian
-            ARGB => {
-                px.write_volatile(
-                    ((color.b as u32) << 16) | ((color.g as u32) << 8) | (color.r as u32),
-                );
-            }
-            ABGR => {
-                px.write_volatile(
-                    ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32),
-                );
-            }
-            _ => {
-                panic!("unknown fb bpp value of {fb_bpp}");
-            }
-        }
-    }
+    pixel!(
+        bi.framebuffer_format,
+        bi.framebuffer_addr,
+        bi.framebuffer_pitch,
+        x,
+        y,
+        color
+    );
 
     Ok(())
 }
 pub fn fill_screen(r: u8, g: u8, b: u8) {
     let bi = boot_info();
 
-    let fb_addr = bi.framebuffer_addr as *mut u32;
-    let fb_bpp = bi.framebuffer_format;
-    let fb_width = bi.framebuffer_width;
-    let fb_height = bi.framebuffer_height;
-    let fb_pitch = bi.framebuffer_pitch;
-
-    for y in 0..fb_height {
-        for x in 0..fb_width {
-            let offset = y * fb_pitch * fb_bpp + x * fb_bpp;
-            let px = unsafe { fb_addr.add(offset as usize) };
-            unsafe {
-                match fb_bpp {
-                    // this is assuming the machine is little-endian
-                    ARGB => {
-                        px.write_volatile(((b as u32) << 16) | ((g as u32) << 8) | (r as u32));
-                    }
-                    ABGR => {
-                        px.write_volatile(((r as u32) << 16) | ((g as u32) << 8) | (b as u32));
-                    }
-                    _ => {
-                        panic!("unknown fb bpp value of {fb_bpp}");
-                    }
-                }
-            }
+    for y in 0..bi.framebuffer_height {
+        for x in 0..bi.framebuffer_width {
+            pixel!(
+                bi.framebuffer_format,
+                bi.framebuffer_addr,
+                bi.framebuffer_pitch,
+                x,
+                y,
+                RGB { r, g, b }
+            );
         }
     }
 }
@@ -140,30 +142,16 @@ pub fn fill_screen(r: u8, g: u8, b: u8) {
 pub fn clear_screen() {
     let bi = boot_info();
 
-    let fb_addr = bi.framebuffer_addr as *mut u32;
-    let fb_bpp = bi.framebuffer_format;
-    let fb_width = bi.framebuffer_width;
-    let fb_height = bi.framebuffer_height;
-    let fb_pitch = bi.framebuffer_pitch;
-
-    for y in 0..fb_height {
-        for x in 0..fb_width {
-            let offset = y * fb_pitch * fb_bpp + x * fb_bpp;
-            let px = unsafe { fb_addr.add(offset as usize) };
-            unsafe {
-                match fb_bpp {
-                    // this is assuming the machine is little-endian
-                    ARGB => {
-                        px.write_volatile(0);
-                    }
-                    ABGR => {
-                        px.write_volatile(0);
-                    }
-                    _ => {
-                        panic!("unknown fb bpp value of {fb_bpp}");
-                    }
-                }
-            }
+    for y in 0..bi.framebuffer_height {
+        for x in 0..bi.framebuffer_width {
+            pixel!(
+                bi.framebuffer_format,
+                bi.framebuffer_addr,
+                bi.framebuffer_pitch,
+                x,
+                y,
+                RGB::black()
+            );
         }
     }
 
@@ -174,32 +162,18 @@ pub fn clear_screen() {
 }
 
 pub fn _clear_line(line: u8) {
-    let line = line as u32;
     let bi = boot_info();
 
-    let fb_addr = bi.framebuffer_addr as *mut u32;
-    let fb_bpp = bi.framebuffer_format;
-    let fb_width = bi.framebuffer_width;
-    let fb_pitch = bi.framebuffer_pitch;
-
-    for y in line..(line + 20) {
-        for x in 0..fb_width {
-            let offset = y * fb_pitch * fb_bpp + x * fb_bpp;
-            let px = unsafe { fb_addr.add(offset as usize) };
-            unsafe {
-                match fb_bpp {
-                    // this is assuming the machine is little-endian
-                    ARGB => {
-                        px.write_volatile(0);
-                    }
-                    ABGR => {
-                        px.write_volatile(0);
-                    }
-                    _ => {
-                        panic!("unknown fb bpp value of {fb_bpp}");
-                    }
-                }
-            }
+    for y in (line as u32)..(line as u32 + 20) {
+        for x in 0..bi.framebuffer_width {
+            pixel!(
+                bi.framebuffer_format,
+                bi.framebuffer_addr,
+                bi.framebuffer_pitch,
+                x,
+                y,
+                RGB::black()
+            );
         }
     }
 }
@@ -2329,14 +2303,30 @@ fn set_ascii(
     front_color: RGB,
     back_color: RGB,
 ) -> Result<(), &'static str> {
+    let bi = boot_info();
+
     let d = CONSOLE_ASCII[c as usize];
     for y in 0..20 {
         for x in 0..10 {
-            let b = (d[y] >> (9 - x)) & 1 != 0;
+            let b = (d[y as usize] >> (9 - x)) & 1 != 0;
             if b {
-                set_pixel(px * 10 + x, py * 20 + y as u32, front_color)?;
+                pixel!(
+                    bi.framebuffer_format,
+                    bi.framebuffer_addr,
+                    bi.framebuffer_pitch,
+                    px * 10 + x,
+                    py * 20 + y,
+                    front_color
+                );
             } else {
-                set_pixel(px * 10 + x, py * 20 + y as u32, back_color)?;
+                pixel!(
+                    bi.framebuffer_format,
+                    bi.framebuffer_addr,
+                    bi.framebuffer_pitch,
+                    px * 10 + x,
+                    py * 20 + y,
+                    back_color
+                );
             }
         }
     }
@@ -2344,7 +2334,7 @@ fn set_ascii(
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct KissConsole {
     px: u32,
     py: u32,

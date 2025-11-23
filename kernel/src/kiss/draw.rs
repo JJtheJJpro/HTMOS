@@ -106,7 +106,7 @@ pub fn draw_rect(rect: Rect, color: RGB) {
         rect.x + rect.w as i32,
         rect.y,
         rect.x,
-        rect.y + rect.h as i32,
+        rect.y,
         color,
     );
 }
