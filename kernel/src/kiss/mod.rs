@@ -71,7 +71,10 @@ impl RGB {
 //const BLT_ONLY: u32 = 3;
 //const FORMAT_MAX: u32 = 4;
 
-/// Order as follows: format, pointer, pitch, x, y, color
+/// Order as follows: format, pointer, pitch, x, y, color.
+/// 
+/// This macro does not do validation checks; be aware.
+#[macro_export]
 macro_rules! pixel {
     ($format:expr, $fb:expr, $pitch:expr, $x:expr, $y:expr, $color:expr) => {{
         unsafe {
@@ -96,7 +99,7 @@ macro_rules! pixel {
                                 | ($color.b as u32),
                         );
                 }
-                _ => panic!("unknown fb bpp value of {{$format}}"),
+                _ => panic!("unknown fb bpp value of {{$format}} (WIP)"),
             }
         }
     }};
@@ -105,7 +108,7 @@ macro_rules! pixel {
 pub fn set_pixel(x: u32, y: u32, color: RGB) -> Result<(), &'static str> {
     let bi = boot_info();
 
-    if x > bi.framebuffer_width { 
+    if x > bi.framebuffer_width {
         return Err("x goes beyond width limit");
     } else if y > bi.framebuffer_height {
         return Err("y goes beyond height limit");

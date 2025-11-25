@@ -73,13 +73,13 @@ pub extern "C" fn efi_main(h: Handle, st: *mut SystemTable) -> Status {
     let (rw, rh) = (gop_info.horizontal_resolution, gop_info.vertical_resolution);
 
     uefi_println!("Pass 1 Complete (loaded framebuffer and info)");
-    (boot_services.stall)(1_000_000);
+    //(boot_services.stall)(1_000_000);
 
     let kernel = helper::load_file(null_mut(), cstr16!("htmkrnl"));
     let skernel = unsafe { &mut *kernel };
 
     uefi_println!("Pass 2 Complete (opened kernel)");
-    (boot_services.stall)(1_000_000);
+    //(boot_services.stall)(1_000_000);
 
     let mut file_info_size = 0;
     let mut file_info: *mut protocols::file::Info = null_mut();
@@ -143,7 +143,7 @@ pub extern "C" fn efi_main(h: Handle, st: *mut SystemTable) -> Status {
     let kbuf = unsafe { core::slice::from_raw_parts_mut(kptr as *mut u8, ksize as usize) };
 
     uefi_println!("Pass 3 Complete (read kernel)");
-    (boot_services.stall)(1_000_000);
+    //(boot_services.stall)(1_000_000);
 
     let elf_kernel = ElfBytes::<AnyEndian>::minimal_parse(kbuf).unwrap();
     let kernel_ventry = elf_kernel.ehdr.e_entry;

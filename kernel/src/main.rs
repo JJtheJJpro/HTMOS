@@ -94,7 +94,7 @@ mod kiss;
 
 use crate::htmalloc::HTMAlloc;
 use crate::kiss::RGB;
-use crate::kiss::draw::Rect;
+use crate::kiss::draw::{Point, Rect};
 use crate::{boot_info::boot_info, kiss::draw};
 use alloc::vec;
 use core::arch::global_asm;
@@ -691,21 +691,30 @@ extern "C" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
     }
 
     draw::draw_line(
-        0,
-        0,
-        bi.framebuffer_width as i32,
-        bi.framebuffer_height as i32,
+        Point { x: 0, y: 0 },
+        Point {
+            x: bi.framebuffer_width.cast_signed(),
+            y: bi.framebuffer_height.cast_signed(),
+        },
+        1,
         RGB::red(),
     );
-    draw::draw_arc(200, 200, 50, 0f32, 90f32, RGB::green());
+    draw::draw_arc(200, 200, 50, 0.0, 180.0, RGB::green());
     draw::draw_ellipse_rotated(500, 500, 100f32, 100f32, 0f32, RGB::blue());
-    draw::draw_rect(
+    draw::draw_rounded_rect(Rect::from_ltrb(100, 700, 200, 800), 5, 1, RGB::white());
+
+    kiss::clear_screen();
+
+    logo();
+    draw::draw_rounded_rect(
         Rect {
-            x: 10,
-            y: 600,
-            w: 100,
+            x: (bi.framebuffer_width / 2 - 300) as i32,
+            y: (bi.framebuffer_height / 2 - 25) as i32,
+            w: 600,
             h: 50,
         },
+        5,
+        1,
         RGB::white(),
     );
 
@@ -722,7 +731,7 @@ fn logo() {
 
     let bi = boot_info();
     let start_x = (bi.framebuffer_width / 2) - (458 / 2);
-    let start_y = (bi.framebuffer_height / 2) - (77 / 2);
+    let start_y = (bi.framebuffer_height / 2) - (77 / 2) - 100;
 
     // 458x77
     let image_bytes = include_bytes!("../small.bmp");
