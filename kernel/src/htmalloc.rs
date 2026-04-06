@@ -314,7 +314,7 @@ unsafe impl GlobalAlloc for HTMAlloc {
     }
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         let ptr = unsafe { self.alloc(layout) };
-        // SAFETY: writing 0's to free memory.
+        // SAFETY: writing 0's to processing memory.
         unsafe {
             ptr.write_bytes(0, layout.pad_to_align().size());
         }

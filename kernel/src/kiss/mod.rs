@@ -13,7 +13,16 @@ fn panic_handler(info: &PanicInfo) -> ! {
     fill_screen(0xFF, 0, 0);
     set_console_background_color(RGB::red());
     set_console_foreground_color(RGB::white());
+    crate::println!(
+        "AN ERROR OCCURED IN THE KERNEL OF HTMOS!  THIS FOLLOWS THE PANIC PATTERN OF RUST!"
+    );
+    crate::println!(
+        "PLEASE COPY OR WRITE DOWN THE FOLLOWING AND CREATE AN ERROR TICKET AT https://example.com/"
+    );
+    crate::println!("KERNEL ERROR CODE: 0x{:02X}", get_krnl_err());
+    crate::println!();
     crate::println!("[PANIC]: {info}");
+    //crate::println!("[PANIC]: {}", info.message());
 
     loop {
         unsafe {
@@ -49,14 +58,14 @@ impl RGB {
             b: 0,
         }
     }
-    pub const fn green() -> Self {
+    pub const fn _green() -> Self {
         Self {
             r: 0,
             g: 0xFF,
             b: 0,
         }
     }
-    pub const fn blue() -> Self {
+    pub const fn _blue() -> Self {
         Self {
             r: 0,
             g: 0,
@@ -72,7 +81,7 @@ impl RGB {
 //const FORMAT_MAX: u32 = 4;
 
 /// Order as follows: format, pointer, pitch, x, y, color.
-/// 
+///
 /// This macro does not do validation checks; be aware.
 #[macro_export]
 macro_rules! pixel {
@@ -2251,7 +2260,7 @@ const CONSOLE_ASCII: [[u16; 20]; 0xFF] = {
         0b0000110000,
         0b0000110000,
         0b0000000000,
-    ]; // ]
+    ]; // |
     r[0x7D] = [
         0b0000000000,
         0b0000000000,
@@ -2273,7 +2282,7 @@ const CONSOLE_ASCII: [[u16; 20]; 0xFF] = {
         0b0001110000,
         0b0000000000,
         0b0000000000,
-    ]; // ]
+    ]; // }
     r[0x7E] = [
         0b0000000000,
         0b0000000000,
@@ -2295,7 +2304,7 @@ const CONSOLE_ASCII: [[u16; 20]; 0xFF] = {
         0b0000000000,
         0b0000000000,
         0b0000000000,
-    ]; // ]
+    ]; // ~
     r
 };
 
@@ -2409,6 +2418,27 @@ unsafe impl<T> Sync for StaticCell<T> {}
 static GBL_CONSOLE: StaticCell<KissConsole> = StaticCell {
     inner: UnsafeCell::new(KissConsole::new()),
 };
+/**
+ * 0x00 - Success
+ * 0x01 - Boot Error (unless fault on BIOS/UEFI code, most likely no boot info given)
+ * 0x02 - Memory Mapping Error
+ * ...
+ * 0x10 - ACPI Parsing Error (General/Unknown)
+ * 0x11 - ACPI Parsing Error (Invalid Signature)
+ * ...
+ * 0x70 - AML Error (General/Unknown)
+ * 0x71 - AML Error (DSDT parsing error)
+ * 0x72 - AML Error (SSDT/PSDT parsing error)
+ */
+static KRNL_ERR: StaticCell<u8> = StaticCell {
+    inner: UnsafeCell::new(0x01),
+};
+pub fn get_krnl_err() -> u8 {
+    unsafe { *KRNL_ERR.inner.get() }
+}
+pub fn set_krnl_err(v: u8) {
+    *unsafe { &mut *KRNL_ERR.inner.get() } = v;
+}
 
 pub fn print_helper(args: Arguments) {
     unsafe { &mut *GBL_CONSOLE.inner.get() }
@@ -2424,7 +2454,7 @@ macro_rules! print {
 #[macro_export]
 macro_rules! println {
     () => {
-        print!("\r\n");
+        crate::print!("\r\n");
     };
     ($($arg:tt)*) => {
         crate::kiss::print_helper(format_args!("{}{}", format_args!($($arg)*), "\r\n"));

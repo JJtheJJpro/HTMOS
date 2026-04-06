@@ -1,6 +1,6 @@
 //! HTMOS's Framebuffer Drawing Driver
 
-use crate::{boot_info::boot_info, kiss::RGB, print, println};
+use crate::{boot_info::boot_info, kiss::RGB};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -49,7 +49,7 @@ pub struct Rect {
     pub h: u32,
 }
 impl Rect {
-    pub const fn from_ltrb(l: i32, t: i32, r: i32, b: i32) -> Self {
+    pub const fn _from_ltrb(l: i32, t: i32, r: i32, b: i32) -> Self {
         Self {
             x: if l > r { r } else { l },
             y: if t > b { b } else { t },
@@ -93,7 +93,7 @@ impl Rect {
     }
 }
 
-pub fn draw_horizontal_line(spt: Point, w: u32, width: u32, color: RGB) {
+pub fn draw_horizontal_line(spt: Point, w: u32, _width: u32, color: RGB) {
     let bi = boot_info();
 
     for x in 0..w {
@@ -108,7 +108,7 @@ pub fn draw_horizontal_line(spt: Point, w: u32, width: u32, color: RGB) {
     }
 }
 
-pub fn draw_vertical_line(spt: Point, h: u32, width: u32, color: RGB) {
+pub fn draw_vertical_line(spt: Point, h: u32, _width: u32, color: RGB) {
     let bi = boot_info();
 
     for y in 0..h {
@@ -209,7 +209,7 @@ pub fn draw_arc(cx: i32, cy: i32, radius: i32, start_deg: f32, end_deg: f32, col
     }
 }
 
-pub fn draw_ellipse_rotated(
+pub fn _draw_ellipse_rotated(
     cx: i32,
     cy: i32,
     width: f32,
@@ -254,7 +254,7 @@ pub fn draw_ellipse_rotated(
     }
 }
 
-pub fn draw_rect(rect: Rect, width: u32, color: RGB) {
+pub fn _draw_rect(rect: Rect, width: u32, color: RGB) {
     draw_line(rect.tl(), rect.bl(), width, color);
     draw_line(rect.bl(), rect.br(), width, color);
     draw_line(rect.br(), rect.tr(), width, color);

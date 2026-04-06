@@ -1,25 +1,33 @@
-//! JJ's Firmware Table Union Type Declarations
+//! JJ's UEFI Table Union Type Declarations
 
+use crate::println;
 use core::{ffi::c_void, fmt::Arguments};
 use r_efi::efi::Guid;
 
-use crate::println;
-
-// just from my laptop for now.
-// EE4E5898-3914-4259-9D6E-DC7BD79403CF (LZMACustomDecompress)
-// 05AD34BA-6F02-4214-952E-4DA0398E2BB9
-// 7739F24C-93D7-11D4-9A3A-0090273FC14D
-// 4C19049F-4137-4DD3-9C10-8B97A83FFDFA
-// 49152E77-1ADA-4764-B7A2-7AFEFED95E8B
-// 00781CA1-5DE3-405F-ABB8-379C3C076984
-// EB9D2D30-2D88-11D3-9A16-0090273FC14D
-// 8868E871-E4F1-11D3-BC22-0080C73C8881
-// 1E2ED096-30E2-4254-BD89-863BBEF82325
-// 4E28CA50-D582-44AC-A11F-E3D56526DB34
-// EB9D2D31-2D88-11D3-9A16-0090273FC14D
-// F2FD1544-9794-4A2C-992E-E5BBCF20E394
-// DCFA911D-26EB-469F-A220-38B7DC461220
-// B122A263-3661-4F68-9929-78F8B0D62180
+// O - Opaque (ignore, do not cast)
+// C - Conditional (may be cast with caution, sort of like a WIP)
+// F - Fixed (may be cast, rarely any problems)
+// 
+// 00781CA1-5DE3-405F-ABB8-379C3C076984 (AMI ROM Layout) - O
+// 05AD34BA-6F02-4214-952E-4DA0398E2BB9 (DXE Services Table) - C
+// 060CC026-4C0D-4DDA-8F41-595FEF00A502 (Memory Status Code Record) - C
+// 1E2ED096-30E2-4254-BD89-863BBEF82325 (TCG2 Final Events Table) - F
+// 49152E77-1ADA-4764-B7A2-7AFEFED95E8B (Debug Image Info Table) - C
+// 4C19049F-4137-4DD3-9C10-8B97A83FFDFA (Memory Type Information) - C
+// 4E28CA50-D582-44AC-A11F-E3D56526DB34 (EDKII PI SMM Communication Region Table) - C
+// 7739F24C-93D7-11D4-9A3A-0090273FC14D (Hand Off Block (HOB) List) - C
+// 880AACA3-4ADC-4A04-9079-B747340825E5 (Properties Table) - C
+// 8868E871-E4F1-11D3-BC22-0080C73C8881 (Root System Description Pointer (RSDP) : ACPI 2.0+) - F
+// A31280AD-481E-41B6-95E8-127f4C984779 (Tiano Compress) - C
+// B122A263-3661-4F68-9929-78F8B0D62180 (EFI System Resource Table) - F
+// D719B2CB-3D3A-4596-A3BC-DAD00E67656F (Image Security Database) - F
+// DCFA911D-26EB-469F-A220-38B7DC461220 (Memory Attributes Table) - F
+// EB9D2D2F-2D88-11D3-9A16-0090273FC14D (MPS Table) - F
+// EB9D2D30-2D88-11D3-9A16-0090273FC14D (Root System Description Pointer (RSDP) : ACPI 1.0) - F
+// EB9D2D31-2D88-11D3-9A16-0090273FC14D (SMBIOS Table) - F
+// EB9D2D32-2D88-11D3-9A16-0090273FC14D (SAL System Table) - F
+// EE4E5898-3914-4259-9D6E-DC7BD79403CF (LZMA Compress) - C
+// F2FD1544-9794-4A2C-992E-E5BBCF20E394 (SMBIOS3 Table) - F
 
 //let vguid = cfg.vendor_guid.as_fields();
 //println!(
@@ -142,9 +150,6 @@ impl FirmwareTable {
                 println!(
                     "GUID {} not implemented; kernel will continue to run.",
                     str::from_utf8(&guid_utf8_upper(guid)).unwrap()
-                );
-                println!(
-                    "Visit 'https://jjthejjpro.com/' to send this GUID to help out with this project."
                 );
                 Err(())
             }

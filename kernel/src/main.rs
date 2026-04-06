@@ -12,15 +12,15 @@ unsafe extern "C" {
 #[cfg(target_arch = "x86_64")]
 global_asm!(include_str!("./asm_entry_stub/x86_64.s"));
 #[cfg(target_arch = "x86")]
-global_asm!(include_str!("./asm_entry_stub/x86.s"));
+global_asm!(include_str!("./asm_entry_stub/x86.s")); // UNTESTED
 #[cfg(target_arch = "aarch64")]
-global_asm!(include_str!("./asm_entry_stub/aarch64.s"));
+global_asm!(include_str!("./asm_entry_stub/aarch64.s")); // UNTESTED
 #[cfg(target_arch = "arm")]
-global_asm!(include_str!("./asm_entry_stub/arm.s"));
+global_asm!(include_str!("./asm_entry_stub/arm.s")); // UNTESTED
 #[cfg(target_arch = "riscv64")]
-global_asm!(include_str!("./asm_entry_stub/riscv64.s"));
+global_asm!(include_str!("./asm_entry_stub/riscv64.s")); // UNTESTED
 #[cfg(target_arch = "riscv32")]
-global_asm!(include_str!("./asm_entry_stub/riscv32.s"));
+global_asm!(include_str!("./asm_entry_stub/riscv32.s")); // UNTESTED
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MemoryPattern {
@@ -91,13 +91,10 @@ mod boot_info;
 mod cfg_tbl;
 mod htmalloc;
 mod kiss;
+mod raml;
 
-use crate::htmalloc::HTMAlloc;
-use crate::kiss::RGB;
-use crate::kiss::draw::{Point, Rect};
-use crate::{boot_info::boot_info, kiss::draw};
-use alloc::vec;
-use core::arch::global_asm;
+use crate::{boot_info::boot_info, htmalloc::HTMAlloc};
+use core::{arch::global_asm, ops::Add};
 use htmos_boot_info::HTMOSBootInformation;
 use r_efi::efi::{self, ConfigurationTable, MemoryDescriptor, RuntimeServices, SystemTable};
 
@@ -641,82 +638,521 @@ pub(crate) fn get_mmap() -> ([(usize, usize); 256], usize) {
     mmap
 }
 
+fn raw_exit() {
+    let bi = boot_info();
+    if bi.boot_mode == 0 {
+        // bios crap
+    } else {
+        unsafe {
+            ((&mut *(&mut *(bi.more_info as *mut SystemTable)).runtime_services).reset_system)(
+                efi::RESET_SHUTDOWN,
+                efi::Status::SUCCESS,
+                0,
+                core::ptr::null_mut(),
+            );
+        }
+    }
+}
+
+// SAFETY: actual items from UEFI firmware, assuming it doesn't give wrong information.
+/// # ONLY USE IN UEFI MODE!
+const fn sliced_uefi_cfg_table() -> &'static [ConfigurationTable] {
+    let bi = boot_info();
+    unsafe {
+        core::slice::from_raw_parts(
+            (&mut *(bi.more_info as *mut SystemTable)).configuration_table,
+            (&mut *(bi.more_info as *mut SystemTable)).number_of_table_entries,
+        )
+    }
+}
+
+const fn checksum_helper_add(r: *const u8, c: usize) -> u8 {
+    let mut ret: u8 = 0;
+    let mut i = 0;
+    loop {
+        ret = ret.wrapping_add(unsafe { r.add(i).read() });
+        i += 1;
+        if i == c {
+            break;
+        }
+    }
+    ret
+}
+
 // SAFETY: assembly stub calls this by name directly; don't change the name.
 #[unsafe(no_mangle)]
 extern "C" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
     if info.is_null() {
-        panic!("no boot info given");
+        panic!("no boot info given (boot info can't be set at addres 0x0)");
     }
+    kiss::set_krnl_err(0x00);
+
     boot_info::set_boot_info(info);
     let bi = boot_info();
-    //(unsafe { &mut *(&mut *((&*info).reserved as *mut SystemTable)).runtime_services }
-    //    .reset_system)(RESET_COLD, Status::ABORTED, 0, null_mut());
 
     kiss::fill_screen(0, 0xFF, 0);
     kiss::fill_screen(0, 0, 0);
 
+    kiss::set_krnl_err(0x02);
     HTMAS.update(get_mmap());
-
-    logo();
-
-    #[cfg(debug_assertions)]
-    {
-        println!(
-            "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{{|}}~"
-        );
-        println!("HTMOS Pre-Alpha v0.2.1");
-
-        println!("Alloc Vec test");
-        let mut vtest = vec![1];
-        assert_eq!(vtest[0], 1, "vtest[0] != 1");
-        vtest.push(1);
-        let v1 = vtest[1];
-        assert_eq!(vtest[1], 1, "vtest[1] != 1");
-        let v0 = vtest[0];
-        let sumv = v0 + v1;
-        let sum = vtest[0] + vtest[1];
-        assert_eq!(
-            sumv, 2,
-            "sumv : {sumv} != 2 (v0: {v0} - v1: {v1} - vtest[0]: {} - vtest[1]: {})",
-            vtest[0], vtest[1]
-        );
-        assert_eq!(sum, 2, "sum : {sum} != 2");
-        assert!(
-            vtest.iter().sum::<i32>() == 2,
-            "iter sum of {} != 2",
-            vtest.iter().sum::<i32>()
-        );
-        drop(vtest);
-        println!("Test passed!");
-    }
-
-    draw::draw_line(
-        Point { x: 0, y: 0 },
-        Point {
-            x: bi.framebuffer_width.cast_signed(),
-            y: bi.framebuffer_height.cast_signed(),
-        },
-        1,
-        RGB::red(),
-    );
-    draw::draw_arc(200, 200, 50, 0.0, 180.0, RGB::green());
-    draw::draw_ellipse_rotated(500, 500, 100f32, 100f32, 0f32, RGB::blue());
-    draw::draw_rounded_rect(Rect::from_ltrb(100, 700, 200, 800), 5, 1, RGB::white());
+    kiss::set_krnl_err(0x00);
 
     kiss::clear_screen();
 
-    logo();
-    draw::draw_rounded_rect(
-        Rect {
-            x: (bi.framebuffer_width / 2 - 300) as i32,
-            y: (bi.framebuffer_height / 2 - 25) as i32,
-            w: 600,
-            h: 50,
-        },
-        5,
-        1,
-        RGB::white(),
+    //logo();
+
+    //for c in sliced_uefi_cfg_table() {
+    //    let vguid = c.vendor_guid.as_fields();
+    //    println!(
+    //        "{:08X}-{:04X}-{:04X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
+    //        vguid.0,
+    //        vguid.1,
+    //        vguid.2,
+    //        vguid.3,
+    //        vguid.4,
+    //        vguid.5[0],
+    //        vguid.5[1],
+    //        vguid.5[2],
+    //        vguid.5[3],
+    //        vguid.5[4],
+    //        vguid.5[5],
+    //    );
+    //}
+
+    kiss::set_krnl_err(0x10);
+    let rsdp = if bi.boot_mode == 0 {
+        println!("BIOS MODE");
+        unsafe { &*(bi.more_info as *const raw_acpi::rsdp::RootSystemDescriptionPointer) }
+    } else {
+        println!("UEFI MODE");
+        let cfg_table = sliced_uefi_cfg_table();
+        let mut ret = 0;
+        #[cfg(target_pointer_width = "32")]
+        {
+            for c in cfg_table {
+                if c.vendor_guid
+                    == efi::Guid::from_fields(
+                        0x8868e871,
+                        0xe4f1,
+                        0x11d3,
+                        0xbc,
+                        0x22,
+                        &[0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81],
+                    )
+                {
+                    ret = c.vendor_table as usize;
+                } else if c.vendor_guid
+                    == efi::Guid::from_fields(
+                        0xeb9d2d30,
+                        0x2d88,
+                        0x11d3,
+                        0x9a,
+                        0x16,
+                        &[0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d],
+                    )
+                {
+                    ret = c.vendor_table as usize;
+                    break;
+                }
+            }
+        }
+        #[cfg(target_pointer_width = "64")]
+        {
+            for c in cfg_table {
+                if c.vendor_guid
+                    == efi::Guid::from_fields(
+                        0x8868e871,
+                        0xe4f1,
+                        0x11d3,
+                        0xbc,
+                        0x22,
+                        &[0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81],
+                    )
+                {
+                    ret = c.vendor_table as usize;
+                    break;
+                } else if c.vendor_guid
+                    == efi::Guid::from_fields(
+                        0xeb9d2d30,
+                        0x2d88,
+                        0x11d3,
+                        0x9a,
+                        0x16,
+                        &[0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d],
+                    )
+                {
+                    ret = c.vendor_table as usize;
+                }
+            }
+        }
+        if ret == 0 {
+            panic!("ACPI not found");
+        }
+        unsafe { &*(ret as *const raw_acpi::rsdp::RootSystemDescriptionPointer) }
+    };
+
+    kiss::set_krnl_err(0x11);
+    if !rsdp.validate_signature() {
+        panic!(
+            "RSDP Signature Bad; expected \"RSD PTR \", found \"{}\"",
+            unsafe { str::from_utf8_unchecked(&rsdp.signature) }
+        )
+    } else if rsdp.revision > 0
+        && checksum_helper_add(
+            rsdp as *const _ as *const _,
+            size_of::<raw_acpi::rsdp::RootSystemDescriptionPointer>(),
+        ) != 0
+    {
+        panic!("RSDP Checksum Bad (ACPI 2.0+)")
+    } else if rsdp.revision == 0 && checksum_helper_add(rsdp as *const _ as *const _, 20) != 0 {
+        panic!("RSDP Checksum Bad (ACPI 1.0)")
+    } else if !rsdp.validate_sdt_signature() {
+        panic!(
+            "RSDT/XSDT Signature Invalid; expected either \"RSDT\" or \"XSDT\", found \"{}\"",
+            unsafe {
+                str::from_utf8_unchecked(
+                    &(&*(rsdp.xsdt_address as *const raw_acpi::rsdt::RootSystemDescriptionTable))
+                        .header
+                        .signature,
+                )
+            }
+        )
+    }
+
+    kiss::set_krnl_err(0x00);
+    println!("RSDP ok");
+    println!("OEM ID: \"{}\"", unsafe {
+        str::from_utf8_unchecked(&rsdp.oemid)
+    });
+    println!(
+        "Revision: {} (ACPI {})",
+        rsdp.revision,
+        if rsdp.revision > 0 { "2.0+" } else { "1.0" }
     );
+    #[cfg(target_pointer_width = "64")]
+    if rsdp.revision == 0 {
+        kiss::set_console_foreground_color(kiss::RGB::rgb(0xC0, 0xC0, 0x00));
+        println!("NOTE: 64-bit architecture using 32-bit ACPI.");
+        kiss::set_console_foreground_color(kiss::RGB::white());
+    }
+
+    // The way I'm gonna do this kind of branch is have this only exist in the code if 32-bit.
+    // And if it is 32-bit but revision is 0, the first branch will not run; the second will.
+    // The reality of it is, the first branch should never run.  Ever.  That's why I mention extreme caution with the warning.
+    let mut aml_data = (0, 0, alloc::vec![]);
+    kiss::set_krnl_err(0x70);
+    unsafe {
+        let mut __i = false;
+        #[cfg(target_pointer_width = "32")]
+        if rsdp.revision > 0 {
+            __i = true;
+
+            kiss::set_console_foreground_color(kiss::RGB::black());
+            kiss::set_console_background_color(kiss::RGB::red());
+            println!(
+                "CRITICAL WARNING: 32-bit architecture using 64-bit ACPI, attempting with extreme caution!!!"
+            );
+            kiss::set_console_foreground_color(kiss::RGB::white());
+            kiss::set_console_background_color(kiss::RGB::black());
+        }
+        if size_of::<usize>() * 8 == 64 || rsdp.revision == 0 {
+            __i = true;
+
+            let sz = if rsdp.revision == 0 {
+                (&*(rsdp.rsdt_address as usize
+                    as *const raw_acpi::rsdt::RootSystemDescriptionTable))
+                    .entry()
+                    .len()
+            } else {
+                (&*(rsdp.xsdt_address as usize
+                    as *const raw_acpi::xsdt::ExtendedSystemDescriptionTable))
+                    .entry()
+                    .len()
+            };
+
+            for i in 0..sz {
+                let ptr = if rsdp.revision == 0 {
+                    (&*(rsdp.rsdt_address as usize
+                        as *const raw_acpi::rsdt::RootSystemDescriptionTable))
+                        .entry()[i] as usize
+                } else {
+                    (&*(rsdp.xsdt_address as usize
+                        as *const raw_acpi::xsdt::ExtendedSystemDescriptionTable))
+                        .entry()[i] as usize
+                };
+
+                let sign =
+                    str::from_utf8_unchecked(core::slice::from_raw_parts(ptr as *const u8, 4));
+
+                match sign {
+                    "SSDT" => {
+                        //{
+                        //    let _t = (&*(ptr
+                        //        as *const raw_acpi::ssdt::SecondarySystemDescriptionTable))
+                        //        .header;
+                        //    println!(
+                        //        "SSDT ({}, {}, {}, {}, {}, {}, {}, {})",
+                        //        ((ptr + 4) as *const u32).read_unaligned(),
+                        //        _t.revision,
+                        //        _t.checksum,
+                        //        str::from_utf8_unchecked(&_t.oemid),
+                        //        str::from_utf8_unchecked(&_t.oem_table_id),
+                        //        ((ptr + 0x18) as *const u32).read_unaligned(),
+                        //        ((ptr + 0x1C) as *const u32).read_unaligned(),
+                        //        ((ptr + 0x20) as *const u32).read_unaligned(),
+                        //    );
+                        //}
+                        aml_data.2.push(
+                            (&*(ptr as *const raw_acpi::ssdt::SecondarySystemDescriptionTable))
+                                .def_block(),
+                        );
+                        continue;
+                    }
+                    "DSDT" => {
+                        if aml_data.0 == 0 {
+                            aml_data.0 = (&*(ptr
+                                as *const raw_acpi::dsdt::DifferentiatedSystemDescriptionTable))
+                                .def_block()
+                                .as_ptr() as usize;
+                            aml_data.1 = (&*(ptr
+                                as *const raw_acpi::dsdt::DifferentiatedSystemDescriptionTable))
+                                .def_block()
+                                .len();
+                        }
+
+                        continue;
+                    }
+                    "FACP" => {
+                        if (&*(ptr as *const raw_acpi::fadt::FixedACPIDescriptionTable)).x_dsdt != 0
+                        {
+                            aml_data.0 = (&*((&*(ptr
+                                as *const raw_acpi::fadt::FixedACPIDescriptionTable))
+                                .x_dsdt as usize
+                                as *const raw_acpi::dsdt::DifferentiatedSystemDescriptionTable))
+                                .def_block()
+                                .as_ptr() as usize;
+                            aml_data.1 = (&*((&*(ptr
+                                as *const raw_acpi::fadt::FixedACPIDescriptionTable))
+                                .x_dsdt as usize
+                                as *const raw_acpi::dsdt::DifferentiatedSystemDescriptionTable))
+                                .def_block()
+                                .len();
+                        } else {
+                            aml_data.0 = (&*((&*(ptr
+                                as *const raw_acpi::fadt::FixedACPIDescriptionTable))
+                                .dsdt as usize
+                                as *const raw_acpi::dsdt::DifferentiatedSystemDescriptionTable))
+                                .def_block()
+                                .as_ptr() as usize;
+                            aml_data.1 = (&*((&*(ptr
+                                as *const raw_acpi::fadt::FixedACPIDescriptionTable))
+                                .dsdt as usize
+                                as *const raw_acpi::dsdt::DifferentiatedSystemDescriptionTable))
+                                .def_block()
+                                .len();
+                        }
+                    }
+                    &_ => {}
+                }
+
+                println!("{sign}");
+            }
+        }
+        if !__i {
+            unreachable!(
+                "The only way the code reached here is if the architecture is 16-bit...or something, idk...just stop."
+            );
+        }
+    }
+    
+    struct GHandler;
+    impl stable_aml::Handler for GHandler {
+        fn read_u8(&self, address: usize) -> u8 {
+            unsafe { (address as *const u8).read() }
+        }
+        fn read_u16(&self, address: usize) -> u16 {
+            unsafe { (address as *const u16).read() }
+        }
+        fn read_u32(&self, address: usize) -> u32 {
+            unsafe { (address as *const u32).read() }
+        }
+        fn read_u64(&self, address: usize) -> u64 {
+            unsafe { (address as *const u64).read() }
+        }
+
+        fn write_u8(&mut self, address: usize, value: u8) {
+            unsafe { (address as *mut u8).write(value) }
+        }
+        fn write_u16(&mut self, address: usize, value: u16) {
+            unsafe { (address as *mut u16).write(value) }
+        }
+        fn write_u32(&mut self, address: usize, value: u32) {
+            unsafe { (address as *mut u32).write(value) }
+        }
+        fn write_u64(&mut self, address: usize, value: u64) {
+            unsafe { (address as *mut u64).write(value) }
+        }
+
+        fn read_io_u8(&self, port: u16) -> u8 {
+            unsafe { x86_64::instructions::port::Port::<u8>::new(port).read() }
+        }
+        fn read_io_u16(&self, port: u16) -> u16 {
+            unsafe { x86_64::instructions::port::Port::<u16>::new(port).read() }
+        }
+        fn read_io_u32(&self, port: u16) -> u32 {
+            unsafe { x86_64::instructions::port::Port::<u32>::new(port).read() }
+        }
+
+        fn write_io_u8(&self, port: u16, value: u8) {
+            unsafe {
+                x86_64::instructions::port::Port::<u8>::new(port).write(value);
+            }
+        }
+        fn write_io_u16(&self, port: u16, value: u16) {
+            unsafe {
+                x86_64::instructions::port::Port::<u16>::new(port).write(value);
+            }
+        }
+        fn write_io_u32(&self, port: u16, value: u32) {
+            unsafe {
+                x86_64::instructions::port::Port::<u32>::new(port).write(value);
+            }
+        }
+
+        fn read_pci_u8(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u8 {
+            let shift = (offset & 3) * 8;
+            ((self.read_pci_u32(segment, bus, device, function, offset) >> shift) & 0xFF) as u8
+        }
+        fn read_pci_u16(
+            &self,
+            segment: u16,
+            bus: u8,
+            device: u8,
+            function: u8,
+            offset: u16,
+        ) -> u16 {
+            let shift = (offset & 2) * 8;
+            ((self.read_pci_u32(segment, bus, device, function, offset) >> shift) & 0xFFFF) as u16
+        }
+        fn read_pci_u32(
+            &self,
+            segment: u16,
+            bus: u8,
+            device: u8,
+            function: u8,
+            offset: u16,
+        ) -> u32 {
+            if segment != 0 {
+                todo!("segment value of nonzero is not yet implemented.");
+            }
+
+            let aligned = offset & !3;
+
+            let address = (1u32 << 31)
+                | ((bus as u32) << 16)
+                | ((device as u32) << 11)
+                | ((function as u32) << 8)
+                | (aligned as u32 & 0xFC);
+
+            let mut addr_port = x86_64::instructions::port::Port::<u32>::new(0xCF8);
+            let mut data_port = x86_64::instructions::port::Port::<u32>::new(0xCFC);
+
+            unsafe {
+                addr_port.write(address);
+                data_port.read()
+            }
+        }
+
+        fn write_pci_u8(
+            &self,
+            segment: u16,
+            bus: u8,
+            device: u8,
+            function: u8,
+            offset: u16,
+            value: u8,
+        ) {
+            let shift = (offset & 3) * 8;
+            let mask = !(0xFF << shift);
+
+            let old = self.read_pci_u32(segment, bus, device, function, offset);
+            let new = (old & mask) | ((value as u32) << shift);
+
+            self.write_pci_u32(segment, bus, device, function, offset, new);
+        }
+        fn write_pci_u16(
+            &self,
+            segment: u16,
+            bus: u8,
+            device: u8,
+            function: u8,
+            offset: u16,
+            value: u16,
+        ) {
+            let shift = (offset & 2) * 8;
+            let mask = !(0xFFFF << shift);
+
+            let old = self.read_pci_u32(segment, bus, device, function, offset);
+            let new = (old & mask) | ((value as u32) << shift);
+
+            self.write_pci_u32(segment, bus, device, function, offset, new);
+        }
+        fn write_pci_u32(
+            &self,
+            segment: u16,
+            bus: u8,
+            device: u8,
+            function: u8,
+            offset: u16,
+            value: u32,
+        ) {
+            if segment != 0 {
+                todo!("segment value of nonzero is not yet implemented.");
+            }
+
+            let aligned = offset & !3;
+
+            let address = (1u32 << 31)
+                | ((bus as u32) << 16)
+                | ((device as u32) << 11)
+                | ((function as u32) << 8)
+                | (aligned as u32 & 0xFC);
+
+            let mut addr_port = x86_64::instructions::port::Port::<u32>::new(0xCF8);
+            let mut data_port = x86_64::instructions::port::Port::<u32>::new(0xCFC);
+
+            unsafe {
+                addr_port.write(address);
+                data_port.write(value)
+            }
+        }
+    }
+    
+    let mut aml = stable_aml::AmlContext::new(alloc::boxed::Box::new(GHandler), stable_aml::DebugVerbosity::All);
+    
+    if aml_data.0 != 0 {
+        kiss::set_krnl_err(0x71);
+        unsafe {
+            if let Err(e) = aml.parse_table(core::slice::from_raw_parts(
+                aml_data.0 as *const u8,
+                aml_data.1,
+            )) {
+                panic!("{e:?}");
+            }
+        }
+    }
+    let mut err = 0;
+    kiss::set_krnl_err(0x72);
+    for ssdt in aml_data.2 {
+        if let Err(_) = aml.parse_table(ssdt) {
+            err += 1;
+        }
+    }
+
+    kiss::set_krnl_err(0x00);
+
+    println!("{err} out of {} SSDTs parsed incorrectly", aml_data.1);
+    
 
     loop {
         unsafe {
@@ -731,7 +1167,7 @@ fn logo() {
 
     let bi = boot_info();
     let start_x = (bi.framebuffer_width / 2) - (458 / 2);
-    let start_y = (bi.framebuffer_height / 2) - (77 / 2) - 100;
+    let start_y = (bi.framebuffer_height / 2) - (77 / 2); // - 100;
 
     // 458x77
     let image_bytes = include_bytes!("../small.bmp");
