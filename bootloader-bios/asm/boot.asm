@@ -1,86 +1,108 @@
+[bits 16]
 [org 0x7c00]
 
-; --- FAT32 Header Start ---
-; The BIOS jumps here, and we immediately jump over the BPB data
-jmp short start
-nop
-
-; This is the BPB (BIOS Parameter Block). 
-; mkfs.fat will overwrite these values with the correct ones for your USB.
-; We use 'db 0' or 'dw 0' as placeholders.
-oem_name            db "MSWIN4.1"   ; 8 bytes
-bytes_per_sector    dw 0
-sectors_per_cluster db 0
-reserved_sectors    dw 0
-fat_count           db 0
-root_entries        dw 0
-total_sectors_16    dw 0
-media_type          db 0
-sectors_per_fat_16  dw 0
-sectors_per_track   dw 0
-heads_count         dw 0
-hidden_sectors      dd 0
-total_sectors_32    dd 0
-
-; FAT32 Extended Boot Record
-sectors_per_fat_32  dd 0
-ext_flags           dw 0
-fs_version          dw 0
-root_cluster        dd 0
-fs_info_sector      dw 0
-backup_boot_sector  dw 0
-reserved            times 12 db 0
-drive_number        db 0
-reserved1           db 0
-boot_signature      db 0x29
-volume_id           dd 0
-volume_label        db "HTMOS BOOT " ; 11 bytes
-file_system_type    db "FAT32   "    ; 8 bytes
-; --- FAT32 Header End ---
-
 start:
-    ; 1. Fix Segments & Stack
-    cli
+    jmp 0:init              ; Far jump to fix CS:IP to 0000:7C00
+
+init:
+    cli                     ; Disable interrupts
     xor ax, ax
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov sp, 0x7c00
-    sti
+    mov sp, 0x7c00          ; Stack grows down from MBR
 
-    ; 2. Save the boot drive ID passed by BIOS in DL
-    mov [BOOT_DRIVE], dl
+    ; --- 1. ENABLE A20 (Fast Gate A20) ---
+    in al, 0x92
+    or al, 2
+    out 0x92, al
 
-    ; 3. Print 'A' (MBR started)
-    mov ax, 0x0e41
+    ; --- 2. LOAD MEMORY MAP (E820) ---
+    ; Loading to 0x500 (safe conventional memory spot)
+    mov di, 0x0504          ; Leave room for entry count at 0x500
+    xor ebx, ebx
+    xor bp, bp              ; Entry counter
+.e820_lp:
+    mov edx, 0x534D4150     ; 'SMAP'
+    mov eax, 0xE820
+    mov ecx, 24
+    int 0x15
+    jc .e820_done
+    cmp eax, 0x534D4150
+    jne .e820_done
+    test ebx, ebx
+    jz .e820_done
+    add di, 24
+    inc bp
+    jmp .e820_lp
+.e820_done:
+    mov [0x0500], bp        ; Store number of entries
+
+    ; --- 3. ENABLE FRAMEBUFFER (VBE) ---
+    ; Get VBE Mode Info for 1024x768x32bit (Mode 0x4117 includes LFB bit)
+    mov ax, 0x4F01
+    mov cx, 0x4117          ; Mode number
+    mov di, 0x7000          ; Temporary buffer for mode info
     int 0x10
 
-    ; TESTING (making sure 'A' still prints)
-    jmp $
+    ; Set the mode
+    mov ax, 0x4F02
+    mov bx, 0x4117          ; BIT 14 set for Linear Framebuffer
+    int 0x10
 
-    ; 4. Read Stage 2 from disk
-    ; We are reading from the "Reserved Sectors" area.
-    ; This is safe space before the actual FAT tables start.
-    mov ah, 0x02    
-    mov al, 30      ; Read 30 sectors (approx 15KB)
-    mov ch, 0x00    
-    mov dh, 0x00    
-    mov cl, 0x02    ; Sector 2 (Immediately after MBR)
-    mov dl, [BOOT_DRIVE]
-    mov bx, 0x8000  
+    ; --- 4. LOAD NEXT SECTORS (LBA) ---
+    ; Loading to 0x7E00 (immediately after MBR)
+    mov ah, 0x42            ; Extended Read
+    mov dl, 0x80            ; Drive (C:)
+    mov si, dap             ; Disk Address Packet
     int 0x13
-    jc disk_error   
+    jc $                    ; Hang on error
 
-    ; 5. Jump to Stage 2
-    mov dl, [BOOT_DRIVE]
-    jmp 0x8000
+    ; --- 5. SETUP GDT ---
+    lgdt [gdt_descriptor]
 
-disk_error:
-    mov ax, 0x0e45  
-    int 0x10
-    jmp $
+    ; --- 6. ENTER PROTECTED MODE ---
+    mov eax, cr0
+    or eax, 1               ; Set PE bit
+    mov cr0, eax
 
-; Fill the rest of the sector, leaving 3 bytes for BOOT_DRIVE and Signature
-times 510-($-$$)-1 db 0 
-BOOT_DRIVE db 0
-dw 0xaa55
+    jmp 0x08:protected_mode ; Far jump to clear pipeline and set CS
+
+[bits 32]
+protected_mode:
+    mov ax, 0x10            ; Update segment registers
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+
+    jmp 0x7E00              ; Jump to the loaded sectors
+
+; --- DATA STRUCTURES ---
+
+align 4
+dap:                        ; Disk Address Packet
+    db 0x10                 ; Size of DAP
+    db 0                    ; Unused
+    dw 16                   ; Number of sectors to read
+    dw 0x7E00               ; Offset
+    dw 0x0000               ; Segment
+    dq 1                    ; Start LBA (Sector 1)
+
+gdt_start:
+    dq 0x0                  ; Null descriptor
+gdt_code:                   ; 0x08: Code segment
+    dw 0xFFFF, 0x0000
+    db 0x00, 10011010b, 11001111b, 0x00
+gdt_data:                   ; 0x10: Data segment
+    dw 0xFFFF, 0x0000
+    db 0x00, 10010010b, 11001111b, 0x00
+gdt_end:
+
+gdt_descriptor:
+    dw gdt_end - gdt_start - 1
+    dd gdt_start
+
+times 510-($-$$) db 0
+dw 0xAA55

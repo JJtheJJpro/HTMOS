@@ -25,4 +25,4 @@ widestring = { version = "1.2.1", default-features = false }
 x86_64 = { version = "0.15.4", default-features = false, features = ["instructions"] }
 
 [build-dependencies]
-lalrpop = "0.22.2"
+#lalrpop = "0.22.2"

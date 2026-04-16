@@ -1,0 +1,1 @@
+qemu-system-i386 -drive format=raw,file=build/boot_disk.img -d cpu_reset -no-reboot -no-shutdown -monitor stdio

@@ -964,194 +964,29 @@ extern "C" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
             );
         }
     }
-    
-    struct GHandler;
-    impl stable_aml::Handler for GHandler {
-        fn read_u8(&self, address: usize) -> u8 {
-            unsafe { (address as *const u8).read() }
-        }
-        fn read_u16(&self, address: usize) -> u16 {
-            unsafe { (address as *const u16).read() }
-        }
-        fn read_u32(&self, address: usize) -> u32 {
-            unsafe { (address as *const u32).read() }
-        }
-        fn read_u64(&self, address: usize) -> u64 {
-            unsafe { (address as *const u64).read() }
-        }
 
-        fn write_u8(&mut self, address: usize, value: u8) {
-            unsafe { (address as *mut u8).write(value) }
-        }
-        fn write_u16(&mut self, address: usize, value: u16) {
-            unsafe { (address as *mut u16).write(value) }
-        }
-        fn write_u32(&mut self, address: usize, value: u32) {
-            unsafe { (address as *mut u32).write(value) }
-        }
-        fn write_u64(&mut self, address: usize, value: u64) {
-            unsafe { (address as *mut u64).write(value) }
-        }
-
-        fn read_io_u8(&self, port: u16) -> u8 {
-            unsafe { x86_64::instructions::port::Port::<u8>::new(port).read() }
-        }
-        fn read_io_u16(&self, port: u16) -> u16 {
-            unsafe { x86_64::instructions::port::Port::<u16>::new(port).read() }
-        }
-        fn read_io_u32(&self, port: u16) -> u32 {
-            unsafe { x86_64::instructions::port::Port::<u32>::new(port).read() }
-        }
-
-        fn write_io_u8(&self, port: u16, value: u8) {
-            unsafe {
-                x86_64::instructions::port::Port::<u8>::new(port).write(value);
-            }
-        }
-        fn write_io_u16(&self, port: u16, value: u16) {
-            unsafe {
-                x86_64::instructions::port::Port::<u16>::new(port).write(value);
-            }
-        }
-        fn write_io_u32(&self, port: u16, value: u32) {
-            unsafe {
-                x86_64::instructions::port::Port::<u32>::new(port).write(value);
-            }
-        }
-
-        fn read_pci_u8(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u8 {
-            let shift = (offset & 3) * 8;
-            ((self.read_pci_u32(segment, bus, device, function, offset) >> shift) & 0xFF) as u8
-        }
-        fn read_pci_u16(
-            &self,
-            segment: u16,
-            bus: u8,
-            device: u8,
-            function: u8,
-            offset: u16,
-        ) -> u16 {
-            let shift = (offset & 2) * 8;
-            ((self.read_pci_u32(segment, bus, device, function, offset) >> shift) & 0xFFFF) as u16
-        }
-        fn read_pci_u32(
-            &self,
-            segment: u16,
-            bus: u8,
-            device: u8,
-            function: u8,
-            offset: u16,
-        ) -> u32 {
-            if segment != 0 {
-                todo!("segment value of nonzero is not yet implemented.");
-            }
-
-            let aligned = offset & !3;
-
-            let address = (1u32 << 31)
-                | ((bus as u32) << 16)
-                | ((device as u32) << 11)
-                | ((function as u32) << 8)
-                | (aligned as u32 & 0xFC);
-
-            let mut addr_port = x86_64::instructions::port::Port::<u32>::new(0xCF8);
-            let mut data_port = x86_64::instructions::port::Port::<u32>::new(0xCFC);
-
-            unsafe {
-                addr_port.write(address);
-                data_port.read()
-            }
-        }
-
-        fn write_pci_u8(
-            &self,
-            segment: u16,
-            bus: u8,
-            device: u8,
-            function: u8,
-            offset: u16,
-            value: u8,
-        ) {
-            let shift = (offset & 3) * 8;
-            let mask = !(0xFF << shift);
-
-            let old = self.read_pci_u32(segment, bus, device, function, offset);
-            let new = (old & mask) | ((value as u32) << shift);
-
-            self.write_pci_u32(segment, bus, device, function, offset, new);
-        }
-        fn write_pci_u16(
-            &self,
-            segment: u16,
-            bus: u8,
-            device: u8,
-            function: u8,
-            offset: u16,
-            value: u16,
-        ) {
-            let shift = (offset & 2) * 8;
-            let mask = !(0xFFFF << shift);
-
-            let old = self.read_pci_u32(segment, bus, device, function, offset);
-            let new = (old & mask) | ((value as u32) << shift);
-
-            self.write_pci_u32(segment, bus, device, function, offset, new);
-        }
-        fn write_pci_u32(
-            &self,
-            segment: u16,
-            bus: u8,
-            device: u8,
-            function: u8,
-            offset: u16,
-            value: u32,
-        ) {
-            if segment != 0 {
-                todo!("segment value of nonzero is not yet implemented.");
-            }
-
-            let aligned = offset & !3;
-
-            let address = (1u32 << 31)
-                | ((bus as u32) << 16)
-                | ((device as u32) << 11)
-                | ((function as u32) << 8)
-                | (aligned as u32 & 0xFC);
-
-            let mut addr_port = x86_64::instructions::port::Port::<u32>::new(0xCF8);
-            let mut data_port = x86_64::instructions::port::Port::<u32>::new(0xCFC);
-
-            unsafe {
-                addr_port.write(address);
-                data_port.write(value)
-            }
-        }
-    }
-    
-    let mut aml = stable_aml::AmlContext::new(alloc::boxed::Box::new(GHandler), stable_aml::DebugVerbosity::All);
-    
-    if aml_data.0 != 0 {
-        kiss::set_krnl_err(0x71);
-        unsafe {
-            if let Err(e) = aml.parse_table(core::slice::from_raw_parts(
-                aml_data.0 as *const u8,
-                aml_data.1,
-            )) {
-                panic!("{e:?}");
-            }
-        }
-    }
-    let mut err = 0;
-    kiss::set_krnl_err(0x72);
-    for ssdt in aml_data.2 {
-        if let Err(_) = aml.parse_table(ssdt) {
-            err += 1;
-        }
-    }
+    //if aml_data.0 != 0 {
+    //    kiss::set_krnl_err(0x71);
+    //    unsafe {
+    //        if let Err(e) = aml.parse_table(core::slice::from_raw_parts(
+    //            aml_data.0 as *const u8,
+    //            aml_data.1,
+    //        )) {
+    //            panic!("{e:?}");
+    //        }
+    //    }
+    //}
+    //let mut err = 0;
+    //kiss::set_krnl_err(0x72);
+    //for ssdt in aml_data.2 {
+    //    if let Err(_) = aml.parse_table(ssdt) {
+    //        err += 1;
+    //    }
+    //}
 
     kiss::set_krnl_err(0x00);
 
-    println!("{err} out of {} SSDTs parsed incorrectly", aml_data.1);
+    //println!("{err} out of {} SSDTs parsed incorrectly", aml_data.1);
     
 
     loop {
