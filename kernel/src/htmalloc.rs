@@ -296,6 +296,20 @@ impl HTMAlloc {
             0
         }
     }
+
+    /// Returns the size of the allocated pointer.  Returns None if not found.
+    fn get_size(&self, start: usize) -> Option<usize> {
+        let idx = self.taken_match_start(start)?;
+        Some(self.get_taken()[idx].1)
+    }
+
+    /// Deallocates memory with just the given location.  The default alignment for the layout is 8.
+    pub unsafe fn dealloc_ptr_only(&self, ptr: usize) {
+        unsafe {
+            let layout = Layout::from_size_align_unchecked(self.get_size(ptr).unwrap(), 8);
+            self.dealloc(ptr as _, layout);
+        }
+    }
 }
 
 // SAFETY: frick you.

@@ -12,12 +12,12 @@ panic = "abort"
 [dependencies]
 embedded-graphics = "0.8.1"
 htmos-boot-info = "0.9.0"
+libacpica = "0.0.8"
 libm = { version = "0.2.15", default-features = false }
 logos = { version = "0.15.1", default-features = false, features = ["export_derive"] }
 #ntfs = { version = "0.4.0", default-features = false }
 r-efi = "5.3.0"
 raw-acpi = "0.0.2"
-stable-aml = "0.0.3"
 tinybmp = "0.6.0"
 ttf-parser = { version = "0.25.1", default-features = false, features=["no-std-float"] }
 typed-arena = { version = "2.0.2", default-features = false }
