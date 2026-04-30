@@ -12,7 +12,6 @@ panic = "abort"
 [dependencies]
 embedded-graphics = "0.8.1"
 htmos-boot-info = "0.9.0"
-libacpica = "0.0.8"
 libm = { version = "0.2.15", default-features = false }
 logos = { version = "0.15.1", default-features = false, features = ["export_derive"] }
 #ntfs = { version = "0.4.0", default-features = false }

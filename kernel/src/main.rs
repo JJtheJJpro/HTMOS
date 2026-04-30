@@ -22,60 +22,6 @@ global_asm!(include_str!("./asm_entry_stub/riscv64.s")); // UNTESTED
 #[cfg(target_arch = "riscv32")]
 global_asm!(include_str!("./asm_entry_stub/riscv32.s")); // UNTESTED
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn AcpiOsMapMemory(
-    where_phys: ACPI_PHYSICAL_ADDRESS,
-    _length: ACPI_SIZE,
-) -> *mut c_void {
-    where_phys as *mut c_void
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn AcpiOsUnmapMemory(_logical_addr: *mut c_void, _length: ACPI_SIZE) {}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn AcpiOsAllocate(size: ACPI_SIZE) -> *mut c_void {
-    unsafe {
-        alloc::alloc::alloc(alloc::alloc::Layout::from_size_align_unchecked(
-            size as usize,
-            size as usize,
-        )) as *mut core::ffi::c_void
-    }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn AcpiOsFree(ptr: *mut c_void) {
-    unsafe {
-        HTMAS.dealloc_ptr_only(ptr as usize);
-    }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn AcpiOsReadPort(
-    address: ACPI_IO_ADDRESS,
-    value: *mut u32,
-    width: u32,
-) -> ACPI_STATUS {
-    unsafe {
-        match width {
-            8 => {
-                *value = x86_64::instructions::port::PortReadOnly::<u8>::new(address as u16).read()
-                    as u32;
-            }
-            16 => {
-                *value = x86_64::instructions::port::PortReadOnly::<u16>::new(address as u16).read()
-                    as u32;
-            }
-            32 => {
-                *value =
-                    x86_64::instructions::port::PortReadOnly::<u32>::new(address as u16).read();
-            }
-            _ => return AE_BAD_PARAMETER,
-        }
-        AE_OK
-    }
-}
-
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MemoryPattern {
     /// No overlapping
@@ -150,7 +96,6 @@ mod raml;
 use crate::{boot_info::boot_info, htmalloc::HTMAlloc};
 use core::{arch::global_asm, ops::Add};
 use htmos_boot_info::HTMOSBootInformation;
-use libacpica::*;
 use r_efi::efi::{self, ConfigurationTable, MemoryDescriptor, RuntimeServices, SystemTable};
 
 #[global_allocator]
@@ -1040,8 +985,6 @@ extern "C" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
     //}
 
     kiss::set_krnl_err(0x00);
-
-    raml::init_acpica();
 
     //println!("{err} out of {} SSDTs parsed incorrectly", aml_data.1);
 
