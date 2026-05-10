@@ -212,7 +212,7 @@ pub(crate) fn load_file(
             efi::protocols::file::READ_ONLY,
         );
         if r != Status::SUCCESS {
-            panic!("nope4");
+            panic!("nope4 {r:?}");
         }
     }
 

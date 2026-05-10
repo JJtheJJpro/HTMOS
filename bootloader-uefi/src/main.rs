@@ -28,7 +28,11 @@ pub extern "C" fn efi_main(h: Handle, st: *mut SystemTable) -> Status {
         // Boot Services easy access.
         let boot_services = &mut *sys_tbl.boot_services;
 
-        uefi_println!("HTMOS Official UEFI Bootloader");
+        uefi_print!("HTMOS Official UEFI Bootloader");
+        #[cfg(target_arch = "x86")]
+        uefi_println!(" x86");
+        #[cfg(target_arch = "x86_64")]
+        uefi_println!(" x86_64");
 
         // Graphics Output Protocol process (to get raw framebuffer and settings)
         let mut n_gop_handles = 0;
@@ -77,9 +81,9 @@ pub extern "C" fn efi_main(h: Handle, st: *mut SystemTable) -> Status {
         //(boot_services.stall)(1_000_000);
 
         #[cfg(target_arch = "x86_64")]
-        let kernel = helper::load_file(null_mut(), cstr16!("htmkrnl.x64"));
+        let kernel = helper::load_file(null_mut(), cstr16!("HTMKRNL.X64"));
         #[cfg(target_arch = "x86")]
-        let kernel = helper::load_file(null_mut(), cstr16!("htmkrnl.x86"));
+        let kernel = helper::load_file(null_mut(), cstr16!("HTMKRNL.X86"));
         let skernel = &mut *kernel;
 
         uefi_println!("Pass 2 Complete (opened kernel)");

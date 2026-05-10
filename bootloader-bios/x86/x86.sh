@@ -15,6 +15,9 @@ cd ..
 cd ../../kernel
 ./build-scripts/x86.sh
 ./build-scripts/x86_64.sh
+cd ../bootloader-uefi
+cargo build --release --target x86_64-unknown-uefi
+cargo build --release --target i686-unknown-uefi
 cd ../bootloader-bios/x86
 
 truncate -s %512 ./build/real-mode.bin
@@ -36,7 +39,7 @@ sudo mount "${LOOP}p1" "$MNT"
 sudo mkdir -p "$MNT/EFI/BOOT"
 sudo cp ../../kernel/target/i386-unknown-none/release/htmkrnl "$MNT/HTMKRNL.X86"
 sudo cp ../../kernel/target/x86_64-unknown-none/release/htmkrnl "$MNT/HTMKRNL.X64"
-sudo cp ../../bootloader-uefi/target/xi686-unknown-uefi/release/bootloader-uefi.efi "$MNT/EFI/BOOT/BOOTA32.EFI"
+sudo cp ../../bootloader-uefi/target/i686-unknown-uefi/release/bootloader-uefi.efi "$MNT/EFI/BOOT/BOOTA32.EFI"
 sudo cp ../../bootloader-uefi/target/x86_64-unknown-uefi/release/bootloader-uefi.efi "$MNT/EFI/BOOT/BOOTX64.EFI"
 
 sudo umount "$MNT"
