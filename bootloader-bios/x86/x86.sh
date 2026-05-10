@@ -34,9 +34,10 @@ MNT=$(mktemp -d)
 sudo mount "${LOOP}p1" "$MNT"
 
 sudo mkdir -p "$MNT/EFI/BOOT"
-sudo cp ../../bootloader-uefi/target/x86_64-unknown-uefi/release/bootloader-uefi.efi "$MNT/EFI/BOOT/BOOTX64.EFI"
 sudo cp ../../kernel/target/i386-unknown-none/release/htmkrnl "$MNT/HTMKRNL.X86"
 sudo cp ../../kernel/target/x86_64-unknown-none/release/htmkrnl "$MNT/HTMKRNL.X64"
+sudo cp ../../bootloader-uefi/target/xi686-unknown-uefi/release/bootloader-uefi.efi "$MNT/EFI/BOOT/BOOTA32.EFI"
+sudo cp ../../bootloader-uefi/target/x86_64-unknown-uefi/release/bootloader-uefi.efi "$MNT/EFI/BOOT/BOOTX64.EFI"
 
 sudo umount "$MNT"
 rmdir "$MNT"

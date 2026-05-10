@@ -11,6 +11,6 @@ dependencies = [
 
 [[package]]
 name = "htmos-boot-info"
-version = "0.9.1"
+version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "043373163e6eb0fb91d4e4e1a7f04c0aeecd1d6a9ba6a77315b221c85d3a1c8f"
+checksum = "32136431257f2ecc0ffee0a546e84aaa8d0088b6d8c05389f5c276c4511c8421"

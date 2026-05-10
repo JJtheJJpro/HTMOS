@@ -59,7 +59,7 @@ pub extern "cdecl" fn _start(boot_info: usize) -> ! {
     #[cfg(target_arch = "x86")]
     {
         let kentry: HTMOSEntry = unsafe { core::mem::transmute(kernel_entry as u32) };
-        kentry(boot_info)
+        kentry(boot_info as *const HTMOSBootInformation)
     }
     #[cfg(target_arch = "x86_64")]
     {
