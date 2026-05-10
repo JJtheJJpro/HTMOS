@@ -1,11 +1,11 @@
 [build]
 target = "i386-unknown-none.json"
-
-[target.'cfg(any())']
-# This tells Cargo to use your custom linker script automatically
 rustflags = [
     "-C", "link-arg=-Tlinker.ld",
+    "-C", "link-arg=-static",
+    "-C", "link-arg=--no-pie"
 ]
 
 [unstable]
 build-std = ["core"]
+build-std-features = ["compiler-builtins-mem"]

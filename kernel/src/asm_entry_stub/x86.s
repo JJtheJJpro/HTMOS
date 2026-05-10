@@ -5,6 +5,10 @@
 .section .text._start, "ax"
 
 _start:
-    mov esp, __stack_end
+    pop eax
+    pop eax
+    lea esp, [__stack_end]
     xor ebp, ebp
+    push eax
+    push 0x00000000
     jmp htmkrnl

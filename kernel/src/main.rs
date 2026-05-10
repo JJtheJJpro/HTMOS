@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![feature(abi_x86_interrupt)]
 
 // SAFETY: given from linker.
 unsafe extern "C" {
@@ -90,13 +91,31 @@ mod api;
 mod boot_info;
 mod cfg_tbl;
 mod htmalloc;
+mod kb_mouse;
 mod kiss;
-mod raml;
+
+#[cfg(target_arch = "x86_64")]
+mod x86_64_stuff;
 
 use crate::{boot_info::boot_info, htmalloc::HTMAlloc};
-use core::{arch::global_asm, ops::Add};
+use core::arch::global_asm;
 use htmos_boot_info::HTMOSBootInformation;
 use r_efi::efi::{self, ConfigurationTable, MemoryDescriptor, RuntimeServices, SystemTable};
+use raw_acpi::fadt::FixedACPIDescriptionTable;
+
+#[inline]
+pub fn halt() {
+    #[cfg(target_arch = "x86_64")]
+    x86_64::instructions::hlt();
+    #[cfg(target_arch = "x86")]
+    unsafe {
+        core::arch::asm!("hlt");
+    }
+    #[cfg(target_arch = "aarch64")]
+    aarch64_cpu::asm::wfi();
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+    riscv::asm::wfi();
+}
 
 #[global_allocator]
 static HTMAS: HTMAlloc = HTMAlloc::ginit();
@@ -360,6 +379,26 @@ impl<const T: usize> MemoryGlue for ([(usize, usize); T], usize) {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(u32)]
+pub enum E820EntryType {
+    Free = 1,
+    Reserved,
+    ACPIReclaim,
+    ACPINVS,
+    Unusable,
+    Disabled,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct E820Entry {
+    pub base: u64,
+    pub length: u64,
+    pub entry_type: E820EntryType,
+    pub attrs: u32,
+}
+
 /// Gives a table of available memory, only scanning Loader, Boot Service, and Conventional sections.
 pub(crate) fn get_mmap() -> ([(usize, usize); 256], usize) {
     let bi = boot_info();
@@ -385,87 +424,42 @@ pub(crate) fn get_mmap() -> ([(usize, usize); 256], usize) {
     let mut mmap = ([(0, 0); 256], 0);
 
     // SAFETY: given the bootloader does its job; otherwise, not safe.
-    let mut ptr = bi.memory_map_addr as *const MemoryDescriptor;
-    let count = (bi.memory_map_size / bi.memory_desc_size) as usize;
-    for _ in 0..count {
-        let desc = unsafe { &*ptr };
+    if bi.boot_mode == 0 {
+        let mut ptr = bi.memory_map_addr as *const E820Entry;
+        let count = (bi.memory_map_size / bi.memory_desc_size) as usize;
+        for _ in 0..count {
+            let entry = unsafe { &*ptr };
 
-        //if i != 0 && i % 4 == 0 {
-        //    println!();
-        //}
-        //match desc.r#type {
-        //    efi::RESERVED_MEMORY_TYPE => {
-        //        print!("RES: ");
-        //    }
-        //    efi::LOADER_CODE => {
-        //        print!("LOC: ");
-        //    }
-        //    efi::LOADER_DATA => {
-        //        print!("LOD: ");
-        //    }
-        //    efi::BOOT_SERVICES_CODE => {
-        //        print!("BSC: ");
-        //    }
-        //    efi::BOOT_SERVICES_DATA => {
-        //        print!("BSD: ");
-        //    }
-        //    efi::RUNTIME_SERVICES_CODE => {
-        //        print!("RSC: ");
-        //    }
-        //    efi::RUNTIME_SERVICES_DATA => {
-        //        print!("RSD: ");
-        //    }
-        //    efi::CONVENTIONAL_MEMORY => {
-        //        print!("CON: ");
-        //    }
-        //    efi::UNUSABLE_MEMORY => {
-        //        print!("UNU: ");
-        //    }
-        //    efi::ACPI_RECLAIM_MEMORY => {
-        //        print!("ARE: ");
-        //    }
-        //    efi::ACPI_MEMORY_NVS => {
-        //        print!("AMM: ");
-        //    }
-        //    efi::MEMORY_MAPPED_IO => {
-        //        print!("MMI: ");
-        //    }
-        //    efi::MEMORY_MAPPED_IO_PORT_SPACE => {
-        //        print!("MPS: ");
-        //    }
-        //    efi::PAL_CODE => {
-        //        print!("PAL: ");
-        //    }
-        //    efi::PERSISTENT_MEMORY => {
-        //        print!("PER: ");
-        //    }
-        //    efi::UNACCEPTED_MEMORY_TYPE => {
-        //        print!("UNA: ");
-        //    }
-        //    _ => {
-        //        print!("UKN: ");
-        //    }
-        //}
-        //print!(
-        //    "{:7} pages (0x{:16X})   ",
-        //    desc.number_of_pages, desc.physical_start
-        //);
+            if entry.entry_type == E820EntryType::Free {
+                mmap.glue_section(entry.base as usize, entry.length as usize);
+            }
 
-        if desc.r#type == efi::LOADER_CODE
-            || desc.r#type == efi::LOADER_DATA
-            || desc.r#type == efi::BOOT_SERVICES_CODE
-            || desc.r#type == efi::BOOT_SERVICES_DATA
-            || desc.r#type == efi::CONVENTIONAL_MEMORY
-        {
-            mmap.glue_section(
-                desc.physical_start as usize,
-                desc.number_of_pages as usize * 4096,
-            );
+            ptr =
+                unsafe { (ptr as *const u8).add(bi.memory_desc_size as usize) } as *const E820Entry;
         }
+    } else {
+        let mut ptr = bi.memory_map_addr as *const MemoryDescriptor;
+        let count = (bi.memory_map_size / bi.memory_desc_size) as usize;
+        for _ in 0..count {
+            let desc = unsafe { &*ptr };
 
-        ptr = unsafe { (ptr as *const u8).add(bi.memory_desc_size as usize) }
-            as *const MemoryDescriptor;
+            if desc.r#type == efi::LOADER_CODE
+                || desc.r#type == efi::LOADER_DATA
+                || desc.r#type == efi::BOOT_SERVICES_CODE
+                || desc.r#type == efi::BOOT_SERVICES_DATA
+                || desc.r#type == efi::CONVENTIONAL_MEMORY
+            {
+                mmap.glue_section(
+                    desc.physical_start as usize,
+                    desc.number_of_pages as usize * 4096,
+                );
+            }
+
+            ptr = unsafe { (ptr as *const u8).add(bi.memory_desc_size as usize) }
+                as *const MemoryDescriptor;
+        }
     }
+
     //println!();
     //println!("MIN : 0x{min:016X}");
     //println!("MAX : 0x{max:016X}");
@@ -638,10 +632,10 @@ pub(crate) fn get_mmap() -> ([(usize, usize); 256], usize) {
     mmap
 }
 
-fn raw_exit() {
+fn shutdown() {
     let bi = boot_info();
     if bi.boot_mode == 0 {
-        // bios crap
+        todo!("Shutdown function not implemented for BIOS yet.");
     } else {
         unsafe {
             ((&mut *(&mut *(bi.more_info as *mut SystemTable)).runtime_services).reset_system)(
@@ -679,15 +673,118 @@ const fn checksum_helper_add(r: *const u8, c: usize) -> u8 {
     ret
 }
 
+#[repr(C, packed)]
+struct DescriptorTablePointer {
+    limit: u16,
+    base: u32,
+}
+/// Force a triple fault by loading an empty IDT and triggering an interrupt.
+pub fn triple_fault() -> ! {
+    // 1. Create a pointer to a "null" IDT.
+    // A limit of 0 means the table has 0 entries.
+    let idt_ptr = DescriptorTablePointer { limit: 0, base: 0 };
+
+    unsafe {
+        core::arch::asm!(
+            "lidt [{0}]",     // Load the invalid IDT
+            "int3",           // Trigger a software breakpoint exception
+            in(reg) &idt_ptr,
+            options(noreturn)
+        );
+    }
+}
+
+fn alloc_test() {
+    let mut v = alloc::vec::Vec::<u32>::new();
+    assert!(v.len() == 0 && v.capacity() == 0);
+
+    v.push(0xAA55AA55);
+    assert!(v[0] == 0xAA55AA55);
+
+    v.push(0x12345678);
+    assert!(v[0] == 0xAA55AA55);
+    assert!(v[1] == 0x12345678);
+
+    v.push(0x2468ABCD);
+    assert!(v[0] == 0xAA55AA55);
+    assert!(v[1] == 0x12345678);
+    assert!(v[2] == 0x2468ABCD);
+
+    v.remove(0);
+    assert!(v[0] == 0x12345678);
+    assert!(v[1] == 0x2468ABCD);
+
+    v.reverse();
+    assert!(v[0] == 0x2468ABCD);
+    assert!(v[1] == 0x12345678);
+
+    for _ in 0..100 {
+        v.push(1);
+    }
+    assert!(v.len() == 102);
+
+    v.remove(0);
+    v.remove(0);
+    for i in 0..100 {
+        assert!(v[i] == 1);
+    }
+
+    println!("vec test passed");
+}
+
 // SAFETY: assembly stub calls this by name directly; don't change the name.
+#[cfg(target_arch = "x86_64")]
 #[unsafe(no_mangle)]
-extern "C" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
+extern "sysv64" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
+    entry(info)
+}
+#[cfg(target_arch = "x86")]
+#[unsafe(no_mangle)]
+extern "cdecl" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
+    entry(info)
+}
+
+fn entry(info: *const HTMOSBootInformation) -> ! {
     if info.is_null() {
         panic!("no boot info given (boot info can't be set at addres 0x0)");
     }
-    kiss::set_krnl_err(0x00);
 
     boot_info::set_boot_info(info);
+
+    kiss::set_krnl_err(0x00);
+
+    if unsafe { &*info }.more_info == 0 {
+        //unsafe { &*info }.more_info != 0 {
+        unsafe { &mut *(info as *mut HTMOSBootInformation) }.more_info = unsafe {
+            let mut ptr = 0x000E0000usize;
+            while ptr < 0x000FFFFF {
+                if core::slice::from_raw_parts(ptr as *const u8, 8) == b"RSD PTR " {
+                    if checksum_helper_add(
+                        ptr as *const _,
+                        size_of::<raw_acpi::rsdp::RootSystemDescriptionPointer>(),
+                    ) == 0
+                        && (&*(ptr as *const raw_acpi::rsdp::RootSystemDescriptionPointer)).revision
+                            > 0
+                    {
+                        break;
+                    } else if checksum_helper_add(ptr as *const _, 20) == 0
+                        && (&*(ptr as *const raw_acpi::rsdp::RootSystemDescriptionPointer)).revision
+                            == 0
+                    {
+                        break;
+                    }
+                    break;
+                }
+
+                ptr += 0x10;
+            }
+            if ptr < 0x000FFFFF {
+                ptr
+            } else {
+                panic!("Unable to find RSDP");
+            }
+        };
+    }
     let bi = boot_info();
 
     kiss::fill_screen(0, 0xFF, 0);
@@ -699,7 +796,15 @@ extern "C" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
 
     kiss::clear_screen();
 
-    //logo();
+    #[cfg(target_arch = "x86_64")]
+    {
+        x86_64_stuff::init();
+        println!("INTERRUPTS INITIALIZED");
+    }
+
+    //alloc_test();
+
+    logo();
 
     //for c in sliced_uefi_cfg_table() {
     //    let vguid = c.vendor_guid.as_fields();
@@ -952,6 +1057,16 @@ extern "C" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
                                 .len();
                         }
                     }
+                    "APIC" => {
+                        #[cfg(target_arch = "x86_64")]
+                        {
+                            x86_64_stuff::init_madt(ptr);
+                            println!("INTERRUPTS INITIALIZED");
+                        }
+                    }
+                    "FADT" => {
+                        let info = *(ptr as *const FixedACPIDescriptionTable);
+                    }
                     &_ => {}
                 }
 
@@ -986,12 +1101,12 @@ extern "C" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
 
     kiss::set_krnl_err(0x00);
 
+    println!("reached the end of main");
+
     //println!("{err} out of {} SSDTs parsed incorrectly", aml_data.1);
 
     loop {
-        unsafe {
-            core::arch::asm!("hlt");
-        }
+        halt();
     }
 }
 
@@ -1009,8 +1124,8 @@ fn logo() {
     for pixel in bmp.pixels() {
         let color = kiss::RGB::rgb(pixel.1.r(), pixel.1.g(), pixel.1.b());
         kiss::set_pixel(
-            pixel.0.x as u32 + start_x,
-            pixel.0.y as u32 + start_y,
+            start_x + pixel.0.x as u32,
+            start_y - pixel.0.y as u32,
             color,
         )
         .unwrap();

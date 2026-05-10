@@ -21,8 +21,10 @@ fn panic_handler(info: &PanicInfo) -> ! {
     );
     crate::println!("KERNEL ERROR CODE: 0x{:02X}", get_krnl_err());
     crate::println!();
-    crate::println!("[PANIC]: {info}");
-    //crate::println!("[PANIC]: {}", info.message());
+    //oop {}
+    //let msg_fmt = alloc::format!("{info}").replace("\n", "\r\n");
+    //crate::println!("[PANIC]: {msg_fmt}");
+    crate::println!("[PANIC]: {}", info);
 
     loop {
         unsafe {
@@ -87,9 +89,10 @@ impl RGB {
 macro_rules! pixel {
     ($format:expr, $fb:expr, $pitch:expr, $x:expr, $y:expr, $color:expr) => {{
         unsafe {
+            use core::ops::Add;
             match $format {
                 0 => {
-                    // ARGB
+                    // ARGB - UEFI Format
                     ($fb as *mut u32)
                         .add(($y * $pitch + $x) as usize)
                         .write_volatile(
@@ -99,9 +102,17 @@ macro_rules! pixel {
                         );
                 }
                 1 => {
-                    // ABGR
+                    // ABGR - UEFI Format
                     ($fb as *mut u32)
                         .add(($y * $pitch + $x) as usize)
+                        .write_volatile(
+                            (($color.r as u32) << 16)
+                                | (($color.g as u32) << 8)
+                                | ($color.b as u32),
+                        );
+                }
+                32 => {
+                    ($fb.add(($y * $pitch + $x * $format / 8) as usize) as *mut u32)
                         .write_volatile(
                             (($color.r as u32) << 16)
                                 | (($color.g as u32) << 8)
@@ -2448,7 +2459,7 @@ pub fn print_helper(args: Arguments) {
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => {
-        crate::kiss::print_helper(format_args!($($arg)*));
+        crate::kiss::print_helper(format_args!($($arg)*))
     };
 }
 #[macro_export]
@@ -2457,6 +2468,6 @@ macro_rules! println {
         crate::print!("\r\n");
     };
     ($($arg:tt)*) => {
-        crate::kiss::print_helper(format_args!("{}{}", format_args!($($arg)*), "\r\n"));
+        crate::kiss::print_helper(format_args!("{}{}", format_args!($($arg)*), "\r\n"))
     };
 }

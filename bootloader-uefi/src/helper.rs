@@ -13,24 +13,26 @@ use r_efi::{
 /// The Panic Handler (needs to be updated for just UEFI use).
 #[panic_handler]
 fn panic_handler(info: &PanicInfo) -> ! {
-    if boot_services_alive() {
-        crate::uefi_println!("[PANIC]: {info}");
-        (unsafe { &mut *(&mut *SYS_TBL.load(Ordering::Acquire)).boot_services }.stall)(5_000_000);
-    } else {
-        (unsafe { &mut *(&mut *SYS_TBL.load(Ordering::Acquire)).runtime_services }.reset_system)(
+    unsafe {
+        if boot_services_alive() {
+            crate::uefi_println!("[PANIC]: {info}");
+            ((&mut *(&mut *SYS_TBL.load(Ordering::Acquire)).boot_services).stall)(5_000_000);
+        } else {
+            ((&mut *(&mut *SYS_TBL.load(Ordering::Acquire)).runtime_services).reset_system)(
+                efi::RESET_SHUTDOWN,
+                Status::SUCCESS,
+                0,
+                null_mut(),
+            );
+        }
+
+        ((&mut *(&mut *SYS_TBL.load(Ordering::Acquire)).runtime_services).reset_system)(
             efi::RESET_SHUTDOWN,
-            Status::SUCCESS,
+            Status::ABORTED,
             0,
             null_mut(),
         );
     }
-
-    (unsafe { &mut *(&mut *SYS_TBL.load(Ordering::Acquire)).runtime_services }.reset_system)(
-        efi::RESET_SHUTDOWN,
-        Status::ABORTED,
-        0,
-        null_mut(),
-    );
 
     loop {}
 }
@@ -78,7 +80,9 @@ struct WriteHolder;
 impl Write for WriteHolder {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         let con_out = unsafe { &mut *(&mut *SYS_TBL.load(Ordering::Acquire)).con_out };
-        (con_out.output_string)(con_out, crate::cstr16!(s));
+        unsafe {
+            (con_out.output_string)(con_out, crate::cstr16!(s));
+        }
         Ok(())
     }
 }
@@ -106,51 +110,53 @@ pub(crate) fn exit_boot_services() -> Result<(*mut MemoryDescriptor, usize, usiz
         let mut desc_size = 0;
         let mut desc_ver = 0;
 
-        let r = (boot_services.get_memory_map)(
-            &mut mem_map_size,
-            mem_map,
-            &mut map_key,
-            &mut desc_size,
-            &mut desc_ver,
-        );
-        if r != Status::BUFFER_TOO_SMALL {
-            return Err(r);
-        }
-        mem_map_size += desc_size * 2;
-        let r = (boot_services.allocate_pool)(
-            efi::LOADER_DATA,
-            mem_map_size,
-            &mut mem_map as *mut _ as *mut *mut c_void,
-        );
-        if r != Status::SUCCESS {
-            return Err(r);
-        }
-        uefi_println!("Success?");
-        (boot_services.stall)(500_000);
-        let r = (boot_services.get_memory_map)(
-            &mut mem_map_size,
-            mem_map,
-            &mut map_key,
-            &mut desc_size,
-            &mut desc_ver,
-        );
-        if r != Status::SUCCESS {
-            return Err(r);
-        }
+        unsafe {
+            let r = (boot_services.get_memory_map)(
+                &mut mem_map_size,
+                mem_map,
+                &mut map_key,
+                &mut desc_size,
+                &mut desc_ver,
+            );
+            if r != Status::BUFFER_TOO_SMALL {
+                return Err(r);
+            }
+            mem_map_size += desc_size * 2;
+            let r = (boot_services.allocate_pool)(
+                efi::LOADER_DATA,
+                mem_map_size,
+                &mut mem_map as *mut _ as *mut *mut c_void,
+            );
+            if r != Status::SUCCESS {
+                return Err(r);
+            }
+            uefi_println!("Success?");
+            //(boot_services.stall)(500_000);
+            let r = (boot_services.get_memory_map)(
+                &mut mem_map_size,
+                mem_map,
+                &mut map_key,
+                &mut desc_size,
+                &mut desc_ver,
+            );
+            if r != Status::SUCCESS {
+                return Err(r);
+            }
 
-        let r = (boot_services.exit_boot_services)(h, map_key);
-        if r == Status::SUCCESS {
-            return Ok((mem_map, mem_map_size, desc_size));
-        } else if r != Status::INVALID_PARAMETER {
-            uefi_println!("Error: {r:?}");
-            (boot_services.stall)(2_000_000);
+            let r = (boot_services.exit_boot_services)(h, map_key);
+            if r == Status::SUCCESS {
+                return Ok((mem_map, mem_map_size, desc_size));
+            } else if r != Status::INVALID_PARAMETER {
+                uefi_println!("Error: {r:?}");
+                (boot_services.stall)(2_000_000);
+                (boot_services.free_pool)(mem_map as *mut c_void);
+                return Err(r);
+            }
+
             (boot_services.free_pool)(mem_map as *mut c_void);
-            return Err(r);
+            uefi_println!("Retrying...");
+            (boot_services.stall)(2_000_000);
         }
-
-        (boot_services.free_pool)(mem_map as *mut c_void);
-        uefi_println!("Retrying...");
-        (boot_services.stall)(2_000_000);
     }
 }
 
@@ -164,48 +170,50 @@ pub(crate) fn load_file(
 
     let mut loaded_file = null_mut();
 
-    let mut loaded_image: *mut protocols::loaded_image::Protocol = null_mut();
-    let r = (bs.open_protocol)(
-        h,
-        &protocols::loaded_image::PROTOCOL_GUID as *const _ as *mut _,
-        &mut loaded_image as *mut _ as *mut _,
-        h,
-        null_mut(),
-        efi::OPEN_PROTOCOL_BY_HANDLE_PROTOCOL,
-    );
-    if r != Status::SUCCESS {
-        panic!("nope1");
-    }
-
-    let mut file_system: *mut protocols::simple_file_system::Protocol = null_mut();
-    let r = (bs.open_protocol)(
-        unsafe { &*loaded_image }.device_handle,
-        &protocols::simple_file_system::PROTOCOL_GUID as *const _ as *mut _,
-        &mut file_system as *mut _ as *mut _,
-        h,
-        null_mut(),
-        efi::OPEN_PROTOCOL_BY_HANDLE_PROTOCOL,
-    );
-    if r != Status::SUCCESS {
-        panic!("nope2");
-    }
-
-    if directory.is_null() {
-        let r = (unsafe { &mut *file_system }.open_volume)(file_system, &mut directory);
+    unsafe {
+        let mut loaded_image: *mut protocols::loaded_image::Protocol = null_mut();
+        let r = (bs.open_protocol)(
+            h,
+            &protocols::loaded_image::PROTOCOL_GUID as *const _ as *mut _,
+            &mut loaded_image as *mut _ as *mut _,
+            h,
+            null_mut(),
+            efi::OPEN_PROTOCOL_BY_HANDLE_PROTOCOL,
+        );
         if r != Status::SUCCESS {
-            panic!("nope3");
+            panic!("nope1");
         }
-    }
 
-    let r = (unsafe { &mut *directory }.open)(
-        directory,
-        &mut loaded_file,
-        path,
-        efi::protocols::file::MODE_READ,
-        efi::protocols::file::READ_ONLY,
-    );
-    if r != Status::SUCCESS {
-        panic!("nope4");
+        let mut file_system: *mut protocols::simple_file_system::Protocol = null_mut();
+        let r = (bs.open_protocol)(
+            (&*loaded_image).device_handle,
+            &protocols::simple_file_system::PROTOCOL_GUID as *const _ as *mut _,
+            &mut file_system as *mut _ as *mut _,
+            h,
+            null_mut(),
+            efi::OPEN_PROTOCOL_BY_HANDLE_PROTOCOL,
+        );
+        if r != Status::SUCCESS {
+            panic!("nope2");
+        }
+
+        if directory.is_null() {
+            let r = ((&mut *file_system).open_volume)(file_system, &mut directory);
+            if r != Status::SUCCESS {
+                panic!("nope3");
+            }
+        }
+
+        let r = ((&mut *directory).open)(
+            directory,
+            &mut loaded_file,
+            path,
+            efi::protocols::file::MODE_READ,
+            efi::protocols::file::READ_ONLY,
+        );
+        if r != Status::SUCCESS {
+            panic!("nope4");
+        }
     }
 
     return loaded_file;

@@ -8,13 +8,24 @@ HTMOS is an Operating System, with an HTML parser and JavaScript engine (both ye
 
 This is a project never to be forgotten.
 
-# Latest Version: Pre-Alpha v0.2.1
+# Latest Version: Pre-Alpha v0.3
+
+- Finally got a working BIOS Bootloader to work!
+    - It currently only works under 32-bit mode.  You can run it on 64-bit computers, but expect a RSOD (red screen of death).
+    - Pre-Alpha v0.3.1 will have a working 64-bit BIOS bootloader alongside, don't worry.
+    - Which reminds me, I may need to test the UEFI code under 32-bit.  It compiles, but idk if it runs correctly.
+- The kernel now handles the E820 Memory Map given from BIOS.
+    - I did a vec test with it, and it passed, so there ya go.
+- You'll also notice, there is a little bit of RSDP and ACPI parsing...not much though.
+- Also, this month marks a full year since I first pushed this project onto github.  Happy Anniversary!
+
+# Previous Versions:
+
+**Pre-Alpha v0.2.1**
 
 - Fixed allocation limitation (hopefully).
 - Introduced a little bit of framebuffer drawing (although this version is currenlty not using them at the moment).
 - Created a new logo, pretty cool, right?
-
-# Previous Versions:
 
 **Pre-Alpha v0.2**
 

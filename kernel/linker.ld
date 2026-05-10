@@ -9,8 +9,8 @@ PHDRS {
 
 SECTIONS
 {
-    /* Load at 1 MiB */
-    . = 1M;
+    /* Load at 2 MiB */
+    . = 2M;
 
     __kernel_start = .;
     .text : ALIGN(4K) {

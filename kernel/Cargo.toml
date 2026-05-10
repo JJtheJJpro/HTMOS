@@ -10,18 +10,30 @@ panic = "abort"
 panic = "abort"
 
 [dependencies]
-embedded-graphics = "0.8.1"
-htmos-boot-info = "0.9.0"
-libm = { version = "0.2.15", default-features = false }
-logos = { version = "0.15.1", default-features = false, features = ["export_derive"] }
+embedded-graphics = "0.8.2"
+htmos-boot-info = "0.9.1"
+lazy_static = { version = "1.5.0", features = ["spin_no_std"] }
+libm = { version = "0.2.16", default-features = false }
+logos = { version = "0.16.1", default-features = false, features = ["export_derive"] }
+pc-keyboard = "0.9.0"
 #ntfs = { version = "0.4.0", default-features = false }
-r-efi = "5.3.0"
+r-efi = "6.0.0"
 raw-acpi = "0.0.2"
-tinybmp = "0.6.0"
+spin = "0.10.0"
+tinybmp = "0.7.0"
 ttf-parser = { version = "0.25.1", default-features = false, features=["no-std-float"] }
 typed-arena = { version = "2.0.2", default-features = false }
 widestring = { version = "1.2.1", default-features = false }
-x86_64 = { version = "0.15.4", default-features = false, features = ["instructions"] }
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+pic8259 = "0.11.0"
+x86_64 = { version = "0.15.4", default-features = false, features = ["instructions", "abi_x86_interrupt"] }
+
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+aarch64-cpu = "11.2.0"
+
+[target.'cfg(any(target_arch = "riscv32", target_arch = "riscv64"))'.dependencies]
+riscv = "0.16.0"
 
 [build-dependencies]
 #lalrpop = "0.22.2"

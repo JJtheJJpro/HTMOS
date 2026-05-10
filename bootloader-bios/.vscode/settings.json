@@ -1,5 +1,0 @@
-{
-    "rust-analyzer.check.extraArgs": [
-        "-Zjson-target-spec"
-    ]
-}

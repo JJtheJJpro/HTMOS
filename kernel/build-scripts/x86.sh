@@ -1,0 +1,1 @@
+cargo build --release --target i386-unknown-none.json -Zjson-target-spec -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem
