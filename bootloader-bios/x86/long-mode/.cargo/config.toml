@@ -1,0 +1,11 @@
+[build]
+target = "x86_64-unknown-none"
+rustflags = [
+    "-C", "link-arg=-Tlinker.ld",
+    "-C", "link-arg=-static",
+    "-C", "link-arg=--no-pie"
+]
+
+[unstable]
+build-std = ["core"]
+build-std-features = ["compiler-builtins-mem"]

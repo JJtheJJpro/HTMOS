@@ -1,12 +1,15 @@
 #![no_std]
 #![no_main]
 
+mod bios;
+
 use crate::bios::FbError;
+use core::arch::asm;
 use core::fmt::Write;
 use core::panic::PanicInfo;
 use htmos_boot_info::HTMOSBootInformation;
 
-mod bios;
+const REAL_SIZE: usize = 0x4C00;
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
@@ -80,9 +83,7 @@ pub extern "C" fn _start() -> ! {
         writeln!(bios_writer, "").unwrap();
     }
 
-    unsafe {
-        bios::load_kernel(disk_num as u8).unwrap();
-    }
+    let x64 = unsafe { bios::load_kernel(disk_num as u8).unwrap() };
 
     //unsafe {
     //    bios::dump_vbe_modes();
@@ -113,24 +114,60 @@ pub extern "C" fn _start() -> ! {
         }
     };
 
-    unsafe {
-        (PM_BOOTINFO_STASH as *mut HTMOSBootInformation).write_volatile(HTMOSBootInformation {
-            magic: u64::from_ne_bytes(*b"HTMLBOOT"),
-            boot_mode: 0,
-            memory_map_addr: 0x0500,
-            memory_map_size: mmap.count() * size_of::<bios::E820Entry>(),
-            memory_desc_size: size_of::<bios::E820Entry>(),
-            framebuffer_addr: fb_info.addr as usize,
-            framebuffer_size: 0,
-            framebuffer_width: fb_info.width,
-            framebuffer_height: fb_info.height,
-            framebuffer_pitch: fb_info.pitch,
-            framebuffer_format: fb_info.bpp as u32,
-            more_info: 0,
-        });
+    if x64 {
+        #[repr(C)]
+        pub struct HTMOSBootInfoLong {
+            pub magic: u64,
+            pub boot_mode: u64,
+            pub memory_map_addr: u64,
+            pub memory_map_size: u64,
+            pub memory_desc_size: u64,
+            pub framebuffer_addr: u64,
+            pub framebuffer_size: u64,
+            pub framebuffer_width: u32,
+            pub framebuffer_height: u32,
+            pub framebuffer_pitch: u32,
+            pub framebuffer_format: u32,
+            pub more_info: u64,
+        }
+        unsafe {
+            (0xFFFB as *mut u8).write_volatile(0xFF);
+            (PM_BOOTINFO_STASH as *mut HTMOSBootInfoLong).write_volatile(HTMOSBootInfoLong {
+                magic: u64::from_ne_bytes(*b"HTMLBOOT"),
+                boot_mode: 0,
+                memory_map_addr: 0x0500,
+                memory_map_size: mmap.count() as u64 * size_of::<bios::E820Entry>() as u64,
+                memory_desc_size: size_of::<bios::E820Entry>() as u64,
+                framebuffer_addr: fb_info.addr,
+                framebuffer_size: 0,
+                framebuffer_width: fb_info.width,
+                framebuffer_height: fb_info.height,
+                framebuffer_pitch: fb_info.pitch,
+                framebuffer_format: fb_info.bpp as u32,
+                more_info: 0,
+            });
+        }
+    } else {
+        unsafe {
+            (0xFFFB as *mut u8).write_volatile(0x00);
+            (PM_BOOTINFO_STASH as *mut HTMOSBootInformation).write_volatile(HTMOSBootInformation {
+                magic: u64::from_ne_bytes(*b"HTMLBOOT"),
+                boot_mode: 0,
+                memory_map_addr: 0x0500,
+                memory_map_size: mmap.count() * size_of::<bios::E820Entry>(),
+                memory_desc_size: size_of::<bios::E820Entry>(),
+                framebuffer_addr: fb_info.addr as usize,
+                framebuffer_size: 0,
+                framebuffer_width: fb_info.width,
+                framebuffer_height: fb_info.height,
+                framebuffer_pitch: fb_info.pitch,
+                framebuffer_format: fb_info.bpp as u32,
+                more_info: 0,
+            });
+        }
     }
 
-    const JUMP_TO: usize = 0x7E00 + 0x4800;
+    const JUMP_TO: usize = 0x7E00 + REAL_SIZE;
 
     bios::GDT.clear_interrupts_and_load();
     switch_to_protected_mode(JUMP_TO as *const u8);
@@ -145,16 +182,14 @@ pub extern "C" fn _start() -> ! {
 const PM_ENTRY_STASH: *mut u32 = 0x7C00 as *mut u32;
 const PM_BOOTINFO_STASH: *mut u32 = 0x7D00 as *mut u32;
 
-use core::arch::asm;
-
 pub fn switch_to_protected_mode(entry_point: *const u8) -> ! {
     unsafe {
         // Stash args before touching anything
         (PM_ENTRY_STASH as *mut u32).write_volatile(entry_point as u32);
-        
+
         asm!("cli");
         set_protected_mode_bit();
-        
+
         asm!("ljmp $0x8, $2f", "2:", options(att_syntax));
 
         asm!(

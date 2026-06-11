@@ -32,7 +32,7 @@ align 4
 dap:
     db 0x10
     db 0
-    dw 50 ; count
+    dw 55 ; count
     dw 0x7E00
     dw 0x0000
     dq 34 ; start

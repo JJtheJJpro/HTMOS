@@ -747,6 +747,8 @@ extern "cdecl" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
 fn entry(info: *const HTMOSBootInformation) -> ! {
     if info.is_null() {
         panic!("no boot info given (boot info can't be set at addres 0x0)");
+    } else if unsafe { &*info }.magic != u64::from_ne_bytes(*b"HTMLBOOT") {
+        panic!("invalid boot info given (magic is incorrect)");
     }
 
     boot_info::set_boot_info(info);
@@ -934,11 +936,15 @@ fn entry(info: *const HTMOSBootInformation) -> ! {
         rsdp.revision,
         if rsdp.revision > 0 { "2.0+" } else { "1.0" }
     );
-    #[cfg(target_pointer_width = "64")]
+    #[cfg(target_arch = "x86_64")]
     if rsdp.revision == 0 {
         kiss::set_console_foreground_color(kiss::RGB::rgb(0xC0, 0xC0, 0x00));
         println!("NOTE: 64-bit architecture using 32-bit ACPI.");
         kiss::set_console_foreground_color(kiss::RGB::white());
+    }
+
+    loop {
+        halt();
     }
 
     // The way I'm gonna do this kind of branch is have this only exist in the code if 32-bit.
@@ -1058,11 +1064,11 @@ fn entry(info: *const HTMOSBootInformation) -> ! {
                         }
                     }
                     "APIC" => {
-                        #[cfg(target_arch = "x86_64")]
-                        {
-                            x86_64_stuff::init_madt(ptr);
-                            println!("INTERRUPTS INITIALIZED");
-                        }
+                        //#[cfg(target_arch = "x86_64")]
+                        //{
+                        //    x86_64_stuff::init_madt(ptr);
+                        //    println!("INTERRUPTS INITIALIZED");
+                        //}
                     }
                     "FADT" => {
                         let info = *(ptr as *const FixedACPIDescriptionTable);

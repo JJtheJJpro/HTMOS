@@ -12,6 +12,15 @@ cargo build --release -Zjson-target-spec
 objcopy -I elf32-i386 -O binary ./target/i386-unknown-none/release/bootloader-bios ../build/protected-mode.bin
 cd ..
 
+cd long-mode
+cargo build --release
+objcopy -I elf64-x86-64 -O binary ./target/x86_64-unknown-none/release/bootloader-bios ../build/long-mode.bin
+cd ..
+
+truncate -s %512 ./build/real-mode.bin
+truncate -s %512 ./build/protected-mode.bin
+truncate -s %512 ./build/long-mode.bin
+
 cd ../../kernel
 ./build-scripts/x86.sh
 ./build-scripts/x86_64.sh
@@ -20,10 +29,7 @@ cargo build --release --target x86_64-unknown-uefi
 cargo build --release --target i686-unknown-uefi
 cd ../bootloader-bios/x86
 
-truncate -s %512 ./build/real-mode.bin
-truncate -s %512 ./build/protected-mode.bin
-
-cat ./build/real-mode.bin ./build/protected-mode.bin > ./build/stage2.bin
+cat ./build/real-mode.bin ./build/protected-mode.bin ./build/long-mode.bin > ./build/stage2.bin
 
 dd if=/dev/zero of=./build/disk.img bs=1M count=64 status=none
 dd if=./build/stage2.bin of=./build/disk.img bs=512 seek=34 conv=notrunc status=none
@@ -47,7 +53,7 @@ rmdir "$MNT"
 sudo losetup -d "$LOOP"
 
 # RUN 32-BIT BIOS: qemu-system-i386 -drive format=raw,file=./build/disk.img -d cpu_reset -no-reboot -no-shutdown -monitor stdio
-# RUN 64-BIT BIOS: TBD
+# RUN 64-BIT BIOS: qemu-system-x86_64 -drive format=raw,file=./build/disk.img -d cpu_reset -no-reboot -no-shutdown -monitor stdio
 # RUN 32-BIT UEFI: TBD
 # RUN 64-BIT UEFI: qemu-system-x86_64 -bios /usr/share/edk2/ovmf/OVMF_CODE.fd -drive format=raw,file=./build/disk.img -d cpu_reset -no-reboot -no-shutdown -monitor stdio
 # RUN ARM32 UEFI: TBD

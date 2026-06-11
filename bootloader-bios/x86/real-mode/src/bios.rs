@@ -340,8 +340,8 @@ impl<'a> Iterator for MemoryMapIter<'a> {
     }
 }
 
-const VBE_INFO_ADDR: u16 = 0xD000; // scratch for VbeInfoBlock
-const MODE_INFO_ADDR: u16 = 0xD200; // scratch for ModeInfoBlock
+const VBE_INFO_ADDR: u16 = 0xE000; // scratch for VbeInfoBlock
+const MODE_INFO_ADDR: u16 = 0xE200; // scratch for ModeInfoBlock
 const FB_INFO_ADDR: *mut FramebufferInfo = 0x04D0 as *mut FramebufferInfo;
 
 #[derive(Debug, Clone, Copy)]
@@ -876,6 +876,125 @@ pub unsafe fn load_kernel_data(drive: u8, start_lba: u64, n_sectors: u32, load_a
     true
 }
 
+/// Returns true if CPUID instruction is supported.
+/// Must be called from 16-bit real mode context.
+pub unsafe fn cpuid_supported() -> bool {
+    let supported: u32;
+    core::arch::asm!(
+        // Save original EFLAGS onto stack
+        "pushfd",
+        // Copy EFLAGS into EAX
+        "pop eax",
+        // Save original value
+        "mov ecx, eax",
+        // Toggle bit 21 (ID flag)
+        "xor eax, 0x200000",
+        // Push modified value back
+        "push eax",
+        // Load modified value into EFLAGS
+        "popfd",
+        // Read EFLAGS back into EAX
+        "pushfd",
+        "pop eax",
+        // Restore original EFLAGS
+        "push ecx",
+        "popfd",
+        // XOR to check if bit 21 actually changed
+        "xor eax, ecx",
+        // Isolate bit 21; nonzero = supported
+        "and eax, 0x200000",
+        out("eax") supported,
+        out("ecx") _,
+        options(nostack)   // we manually manage the stack
+    );
+    supported != 0
+}
+
+#[derive(Debug, PartialEq)]
+pub enum CpuBitness {
+    Bits64, // Long Mode supported (x86-64)
+    Bits32, // No Long Mode (IA-32 only)
+}
+
+/// Queries CPUID to determine if CPU is 32-bit or 64-bit capable.
+/// Only call this after confirming CPUID is supported.
+pub unsafe fn cpu_bitness() -> CpuBitness {
+    let cpuid = core::arch::x86::__cpuid(0x80000000);
+    if cpuid.eax < 0x80000001 {
+        return CpuBitness::Bits32;
+    }
+    let cpuid = core::arch::x86::__cpuid(0x80000001);
+    if cpuid.edx & 0x20000000 != 0 {
+        CpuBitness::Bits64
+    } else {
+        CpuBitness::Bits32
+    }
+    /*
+    let edx: u32;
+
+    core::arch::asm!(
+        // First check max extended leaf via 0x80000000
+        "mov eax, 0x80000000",
+        "cpuid",
+        // EAX now contains max extended function number
+        // If EAX < 0x80000001, extended info not available → 32-bit only
+        "cmp eax, 0x80000001",
+        "jb 2f",             // jump to fallback if not supported
+
+        // Query extended feature flags
+        "mov eax, 0x80000001",
+        "cpuid",
+        // EDX bit 29 = LM (Long Mode / 64-bit support)
+        "and edx, 0x20000000",
+        "jmp 3f",
+
+        "2:",                // fallback: extended leaf unavailable
+        "xor edx, edx",     // treat as 32-bit
+
+        "3:",
+        out("eax") _,
+        out("ebx") _,
+        out("ecx") _,
+        out("edx") edx,
+        options(nostack, nomem)
+    );
+    
+    if edx != 0 {
+        CpuBitness::Bits64
+    } else {
+        CpuBitness::Bits32
+    }
+    */
+}
+
+/// Returns true if CPU is a 486 or later (AC flag exists).
+/// On a 386, the AC bit cannot be set — it's hardwired to 0.
+unsafe fn is_486_or_later() -> bool {
+    let result: u32;
+    core::arch::asm!(
+        "pushfd",
+        "pop eax",
+        "mov ecx, eax",
+        // Try to set bit 18 (AC flag)
+        "xor eax, 0x40000",
+        "push eax",
+        "popfd",
+        // Read back EFLAGS
+        "pushfd",
+        "pop eax",
+        // Restore original EFLAGS
+        "push ecx",
+        "popfd",
+        // Check if bit 18 stuck
+        "xor eax, ecx",
+        "and eax, 0x40000",
+        out("eax") result,
+        out("ecx") _,
+        options(nostack)
+    );
+    result != 0
+}
+
 const MBR_BUF: u32 = 0xEC00;
 const GPT_BUF: u32 = 0xEC00;
 const ETR_BUF: u32 = 0xEE00;
@@ -909,7 +1028,8 @@ struct PartitionEntry {
     name: [u16; 36],
 }
 
-pub unsafe fn load_kernel(drive: u8) -> Result<(), &'static str> {
+/// Returns true if 64-bit.
+pub unsafe fn load_kernel(drive: u8) -> Result<bool, &'static str> {
     // ── Step 1: Read MBR ──────────────────────────────────────────────────
     if !read_sector_rm(drive, 0, MBR_BUF) {
         return Err("MBR read failed");
@@ -1020,13 +1140,31 @@ pub unsafe fn load_kernel(drive: u8) -> Result<(), &'static str> {
     if !read_sector_rm(drive, first_data_lba as u64, DAT_BUF) {
         return Err("First Data LBA read failed");
     }
-    #[cfg(target_pointer_width = "32")]
-    const NAME: &[u8] = b"HTMKRNL X86";
-    #[cfg(target_pointer_width = "64")]
-    const NAME: &[u8] = b"HTMKRNL X64";
+
+    let x64 = if is_486_or_later() {
+        writeln!(Writer, "CPUID supported").unwrap();
+        if cpu_bitness() == CpuBitness::Bits64 {
+            writeln!(Writer, "64-bit").unwrap();
+            true
+            
+        } else {
+            writeln!(Writer, "32-bit").unwrap();
+            false
+        }
+    } else {
+        writeln!(Writer, "CPUID not supported").unwrap();
+        false
+    };
+
+    let krnl_name = if x64 {
+        b"HTMKRNL X64"
+    } else {
+        b"HTMKRNL X86"
+    };
+
     for i in 0..16 {
         let name = core::slice::from_raw_parts((DAT_BUF + i * 0x20) as *const u8, 11);
-        if name == NAME {
+        if name == krnl_name {
             let data = (DAT_BUF + i * 0x20) as *const u8;
             let hi = (data.offset(20) as *const u16).read();
             let lo = (data.offset(26) as *const u16).read();
@@ -1062,5 +1200,5 @@ pub unsafe fn load_kernel(drive: u8) -> Result<(), &'static str> {
     )
     .unwrap();
 
-    Ok(())
+    Ok(x64)
 }
