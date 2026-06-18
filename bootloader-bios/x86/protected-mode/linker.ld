@@ -2,10 +2,10 @@ ENTRY(_start)
 
 SECTIONS
 {
-    . = 0x7E00 + 0x4C00;
+    . = 0x7E00;
 
     /* The code section */
-    .text : AT(0x7E00 + 0x4C00)
+    .text : AT(0x7E00)
     {
         /* Ensure the entry point is at the very beginning of the binary */
         *(.text._start)

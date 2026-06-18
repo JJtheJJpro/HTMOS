@@ -12,4 +12,4 @@ lto = true
 panic = "abort"
 
 [dependencies]
-htmos-boot-info = "0.9.2"
+htmos-boot-info = "0.9.3"

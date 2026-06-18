@@ -3,16 +3,13 @@
 
 mod kernel_loading;
 
-use core::{panic::PanicInfo, ptr::null};
+use core::panic::PanicInfo;
 use htmos_boot_info::{HTMOSBootInformation, HTMOSEntry};
 
-//const REAL_SIZE: usize = 0x4C00;
-//const PROT_SIZE: usize = 0x0600;
-//const LONG_SIZE: usize = 0x0400;
+const ADDR_BOOT_INFO: u16 = 0x7C00;
 
-static mut BOOT_INFO: *const HTMOSBootInformation = null();
 const fn boot_info() -> &'static HTMOSBootInformation {
-    unsafe { &*BOOT_INFO }
+    unsafe { &*(ADDR_BOOT_INFO as *const HTMOSBootInformation) }
 }
 
 pub fn triple_fault() -> ! {
@@ -63,11 +60,7 @@ fn panic(_info: &PanicInfo) -> ! {
 
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text._start")]
-pub extern "sysv64" fn _start(boot_info: usize) -> ! {
-    unsafe {
-        BOOT_INFO = boot_info as *const _;
-    }
-
+pub fn _start() -> ! {
     let krnl_sz = unsafe { *(0xFFFC as *mut u32) } as usize;
     let kbuf = unsafe { core::slice::from_raw_parts_mut(0x0001_0000 as *mut u8, krnl_sz) };
     let kernel_entry = unsafe { kernel_loading::load_elf64(kbuf) }.unwrap() as usize;

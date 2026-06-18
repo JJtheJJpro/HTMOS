@@ -5,39 +5,37 @@ mod kernel_loading;
 mod long;
 
 use core::{arch::asm, panic::PanicInfo, ptr::null};
-use htmos_boot_info::{HTMOSBootInformation, HTMOSEntry};
+use htmos_boot_info::{HTMOSBootInformation32, HTMOSBootInformation64, HTMOSEntry};
 
-const REAL_SIZE: usize = 0x4C00;
-const PROT_SIZE: usize = 0x0600;
-const X64_CHECK: *const u8 = 0xFFFB as *const u8;
+const ADDR_BOOT_INFO: u16 = 0x7C00;
+const ADDR_X64: u16 = 0x7C00 + 80;
+const ADDR_KRNL_SZ: u16 = 0x7C00 + 96;
 
-#[repr(C)]
-pub struct HTMOSBootInfoLong {
-    pub magic: u64,
-    pub boot_mode: u64,
-    pub memory_map_addr: u64,
-    pub memory_map_size: u64,
-    pub memory_desc_size: u64,
-    pub framebuffer_addr: u64,
-    pub framebuffer_size: u64,
-    pub framebuffer_width: u32,
-    pub framebuffer_height: u32,
-    pub framebuffer_pitch: u32,
-    pub framebuffer_format: u32,
-    pub more_info: u64,
+const fn boot_info() -> &'static HTMOSBootInformation32 {
+    unsafe { &*(ADDR_BOOT_INFO as *const HTMOSBootInformation32) }
+}
+const fn boot_info_x64() -> &'static HTMOSBootInformation64 {
+    unsafe { &*(ADDR_BOOT_INFO as *const HTMOSBootInformation64) }
 }
 
-static mut BOOT_INFO: *const HTMOSBootInformation = null();
-const fn boot_info() -> &'static HTMOSBootInformation {
-    unsafe { &*BOOT_INFO }
-}
-const fn boot_info_x64() -> &'static HTMOSBootInfoLong {
-    unsafe { &*(BOOT_INFO as *const HTMOSBootInfoLong) }
+pub fn triple_fault() -> ! {
+    use core::arch::asm;
+
+    let idtr: [u8; 10] = [0u8; 10];
+
+    unsafe {
+        asm!(
+            "lidt [{idtr}]",
+            "int3",
+            idtr = in(reg) idtr.as_ptr(),
+            options(noreturn, nostack)
+        );
+    }
 }
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    if unsafe { X64_CHECK.read_volatile() == 0xFF } {
+    if unsafe { (ADDR_X64 as *const u8).read_volatile() == 0xFF } {
         let info = boot_info_x64();
         unsafe {
             let fb = info.framebuffer_addr as *mut u8;
@@ -96,65 +94,54 @@ fn panic(_info: &PanicInfo) -> ! {
 
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text._start")]
-pub extern "cdecl" fn _start(boot_info: usize) -> ! {
-    unsafe {
-        BOOT_INFO = boot_info as *const _;
-    }
-
+pub fn _start() -> ! {
     //const KERNEL_LOAD_ADDR: usize = 0x0001_0000;
     //const KERNEL_SIZE_ADDR: *mut u32 = 0xFFFC as *mut u32;
 
-    if unsafe { X64_CHECK.read_volatile() != 0xFF } {
-        let krnl_sz = unsafe { *(0xFFFC as *mut u32) } as usize;
+    if unsafe { (ADDR_X64 as *const u8).read_volatile() != 0xFF } {
+        let krnl_sz = unsafe { *(ADDR_KRNL_SZ as *mut u32) } as usize;
         let kbuf = unsafe { core::slice::from_raw_parts_mut(0x0001_0000 as *mut u8, krnl_sz) };
         let kernel_entry = unsafe { kernel_loading::load_elf32(kbuf) }.unwrap() as usize;
 
         let kentry: HTMOSEntry = unsafe { core::mem::transmute(kernel_entry as u32) };
-        kentry(boot_info as *const HTMOSBootInformation)
+        kentry(boot_info as *const HTMOSBootInformation32)
     } else {
         long::init();
         long::LONG_MODE_GDT.load();
-        enter_long_mode_and_jump_to_stage_4(boot_info)
+
+        //enter_long_mode_and_jump_to_stage_4();
+
+        unsafe {
+            asm!(
+                "jmp {}",
+                in(reg) 0x7d80,
+                options(noreturn)
+            );
+        }
     }
 }
 
-pub fn enter_long_mode_and_jump_to_stage_4(boot_info: usize) -> ! {
-    const JUMP_TO: usize = 0x7E00 + REAL_SIZE + PROT_SIZE;
+pub fn enter_long_mode_and_jump_to_stage_4() -> ! {
     unsafe {
         asm!(
             // align the stack
             "and esp, 0xffffff00",
-            // push arguments (extended to 64 bit)
-            "push 0",
-            "push {info:e}",
-            // push entry point address (extended to 64 bit)
-            "push 0",
-            "push {entry_point:e}",
-            info = in(reg) boot_info as u32,
-            entry_point = in(reg) JUMP_TO,
         );
         asm!("ljmp $0x8, $2f", "2:", options(att_syntax));
         asm!(
             ".code64",
 
             // reload segment registers
-            "mov {0}, 0x10",
-            "mov ds, {0}",
-            "mov es, {0}",
-            "mov ss, {0}",
+            "mov rax, 0x10",
+            "mov ds, rax",
+            "mov es, rax",
+            "mov ss, rax",
+            "mov rsp, 0x00007C00",
 
-            // jump to 4th stage
-            "pop rax",
-            "pop rdi",
-            
             "call rax",
             "2:",
             "jmp 2b",
-            out(reg) _,
-            out("rax") _,
-            out("rdi") _,
+            options(noreturn)
         );
-
     }
-    loop {}
 }

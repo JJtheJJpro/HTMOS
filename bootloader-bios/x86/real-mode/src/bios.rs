@@ -1,12 +1,6 @@
 use core::{arch::asm, fmt::Write};
 
-pub struct Writer;
-impl Write for Writer {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        print_str(s);
-        Ok(())
-    }
-}
+use crate::{ADDR_E820_BASE, ADDR_E820_COUNT};
 
 pub fn print_str(s: &str) {
     for &b in s.as_bytes() {
@@ -228,8 +222,6 @@ pub struct GdtPointer {
 unsafe impl Send for GdtPointer {}
 unsafe impl Sync for GdtPointer {}
 
-const E820_BASE: usize = 0x0500;
-const E820_COUNT_ADDR: *mut u16 = 0x04FE as *mut u16;
 //const E820_MAGIC: u32 = 0x534D4150; // "SMAP"
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
@@ -267,8 +259,8 @@ pub unsafe fn init_memory_map() -> usize {
         "jnz 42b",                         // continuation != 0, keep going
 
         "43:",                             // done
-        // Store count at 0x04FE
-        "mov word ptr es:[0x04FE], bp",
+        // Store count at 0x7C52
+        "mov word ptr es:[0x7C52], bp",
         "pop es",
 
         // no inputs or outputs — everything done in registers/memory directly
@@ -281,7 +273,7 @@ pub unsafe fn init_memory_map() -> usize {
     );
 
     // Read back the count Rust-side
-    E820_COUNT_ADDR.read_volatile() as usize
+    unsafe { (ADDR_E820_COUNT as *const u16).read_volatile() as usize }
 }
 pub struct MemoryMap {
     entries: *const E820Entry,
@@ -289,9 +281,9 @@ pub struct MemoryMap {
 }
 impl MemoryMap {
     pub unsafe fn read() -> Self {
-        let count = E820_COUNT_ADDR.read_volatile() as usize;
+        let count = unsafe { (ADDR_E820_COUNT as *const u16).read_volatile() as usize };
         MemoryMap {
-            entries: E820_BASE as *const E820Entry,
+            entries: ADDR_E820_BASE as *const E820Entry,
             count,
         }
     }
@@ -505,7 +497,7 @@ pub unsafe fn init_framebuffer() -> Result<FramebufferInfo, FbError> {
         );
 
         if mode_call_ok != 0x004F {
-            writeln!(Writer, "mode call not ok").unwrap();
+            print_str("mode call not ok\n");
             continue;
         }
 
@@ -530,13 +522,11 @@ pub unsafe fn init_framebuffer() -> Result<FramebufferInfo, FbError> {
             continue;
         }
         if fb_addr == 0 {
-            //writeln!(Writer, "fb_addr=0").unwrap();
             continue;
         }
 
         // Accept 32bpp or 24bpp — prefer 32bpp
         if bpp != 32 && bpp != 24 {
-            //writeln!(Writer, "not 32 or 24 bpp").unwrap();
             continue;
         }
 
@@ -958,7 +948,7 @@ pub unsafe fn cpu_bitness() -> CpuBitness {
         out("edx") edx,
         options(nostack, nomem)
     );
-    
+
     if edx != 0 {
         CpuBitness::Bits64
     } else {
@@ -1127,13 +1117,6 @@ pub unsafe fn load_kernel(drive: u8) -> Result<bool, &'static str> {
     let fat_lba = part_lba + rsvd;
     let first_data_lba = part_lba + rsvd + nfats * spf;
 
-    writeln!(
-        Writer,
-        "bps={} spc={} rsvd={} nfats={} spf={} rootclus={} fat_lba={} data_lba={}",
-        bps, spc, rsvd, nfats, spf, root_cluster, fat_lba, first_data_lba
-    )
-    .ok();
-
     let mut krnl_lba = 0;
     let mut krnl_sz = 0;
 
@@ -1142,25 +1125,20 @@ pub unsafe fn load_kernel(drive: u8) -> Result<bool, &'static str> {
     }
 
     let x64 = if is_486_or_later() {
-        writeln!(Writer, "CPUID supported").unwrap();
+        print_str("CPUID supported\n");
         if cpu_bitness() == CpuBitness::Bits64 {
-            writeln!(Writer, "64-bit").unwrap();
+            print_str("64-bit\n");
             true
-            
         } else {
-            writeln!(Writer, "32-bit").unwrap();
+            print_str("32-bit\n");
             false
         }
     } else {
-        writeln!(Writer, "CPUID not supported").unwrap();
+        print_str("CPUID not supported\n");
         false
     };
 
-    let krnl_name = if x64 {
-        b"HTMKRNL X64"
-    } else {
-        b"HTMKRNL X86"
-    };
+    let krnl_name = if x64 { b"HTMKRNL X64" } else { b"HTMKRNL X86" };
 
     for i in 0..16 {
         let name = core::slice::from_raw_parts((DAT_BUF + i * 0x20) as *const u8, 11);
@@ -1188,17 +1166,6 @@ pub unsafe fn load_kernel(drive: u8) -> Result<bool, &'static str> {
     }
 
     KERNEL_SIZE_ADDR.write(krnl_sz);
-
-    writeln!(
-        Writer,
-        "Successfully wrote {krnl_sz_lba} sectors of the entire kernel"
-    )
-    .unwrap();
-    writeln!(
-        Writer,
-        "at addr 0x{KERNEL_LOAD_ADDR:08X} from LBA {krnl_lba} (kernel is {krnl_sz} bytes)"
-    )
-    .unwrap();
 
     Ok(x64)
 }
