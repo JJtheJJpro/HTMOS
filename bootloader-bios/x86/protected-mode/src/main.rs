@@ -8,8 +8,8 @@ use core::{arch::asm, panic::PanicInfo, ptr::null};
 use htmos_boot_info::{HTMOSBootInformation32, HTMOSBootInformation64, HTMOSEntry};
 
 const ADDR_BOOT_INFO: u16 = 0x7C00;
-const ADDR_X64: u16 = 0x7C00 + 80;
-const ADDR_KRNL_SZ: u16 = 0x7C00 + 96;
+const ADDR_X64: u16 = 0x7C00 + 0x50;
+const ADDR_KRNL_SZ: u16 = 0x7C00 + 0x60;
 
 const fn boot_info() -> &'static HTMOSBootInformation32 {
     unsafe { &*(ADDR_BOOT_INFO as *const HTMOSBootInformation32) }
@@ -104,20 +104,20 @@ pub fn _start() -> ! {
         let kernel_entry = unsafe { kernel_loading::load_elf32(kbuf) }.unwrap() as usize;
 
         let kentry: HTMOSEntry = unsafe { core::mem::transmute(kernel_entry as u32) };
-        kentry(boot_info as *const HTMOSBootInformation32)
+        kentry(ADDR_BOOT_INFO as *const HTMOSBootInformation32)
     } else {
         long::init();
         long::LONG_MODE_GDT.load();
 
-        //enter_long_mode_and_jump_to_stage_4();
+        enter_long_mode_and_jump_to_stage_4();
 
-        unsafe {
-            asm!(
-                "jmp {}",
-                in(reg) 0x7d80,
-                options(noreturn)
-            );
-        }
+        //unsafe {
+        //    asm!(
+        //        "jmp {}",
+        //        in(reg) 0x7d80,
+        //        options(noreturn)
+        //    );
+        //}
     }
 }
 
@@ -137,6 +137,8 @@ pub fn enter_long_mode_and_jump_to_stage_4() -> ! {
             "mov es, rax",
             "mov ss, rax",
             "mov rsp, 0x00007C00",
+
+            "mov rax, 0x8400",
 
             "call rax",
             "2:",

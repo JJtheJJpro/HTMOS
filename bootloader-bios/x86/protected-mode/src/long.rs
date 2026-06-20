@@ -1,6 +1,6 @@
 use core::{arch::asm, mem::size_of};
 
-const PAGE_TABLE_BASE: usize = 0x0100_0000;
+const PAGE_TABLE_BASE: usize = 0x0010_0000; // Temporary assignment, idek what to do with this yet.
 
 pub fn init() {
     create_mappings();

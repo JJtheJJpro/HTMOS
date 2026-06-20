@@ -153,7 +153,14 @@ mov ds, ax
 mov es, ax
 mov ss, ax
 mov rsp, 0x00007C00
-jmp 0x8400
+jmp 0x7E00 + 0x0600
+
+loop64:
+    jmp loop64
+
+tplf64:
+    lidt [zero_idtr]
+    int3
 
 times 446-($-$$) db 0x90 ; room for fs
 

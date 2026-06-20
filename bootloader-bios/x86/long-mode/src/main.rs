@@ -7,6 +7,7 @@ use core::panic::PanicInfo;
 use htmos_boot_info::{HTMOSBootInformation, HTMOSEntry};
 
 const ADDR_BOOT_INFO: u16 = 0x7C00;
+const ADDR_KRNL_SZ: u16 = 0x7C00 + 0x60;
 
 const fn boot_info() -> &'static HTMOSBootInformation {
     unsafe { &*(ADDR_BOOT_INFO as *const HTMOSBootInformation) }
@@ -61,10 +62,10 @@ fn panic(_info: &PanicInfo) -> ! {
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text._start")]
 pub fn _start() -> ! {
-    let krnl_sz = unsafe { *(0xFFFC as *mut u32) } as usize;
+    let krnl_sz = unsafe { *(ADDR_KRNL_SZ as *mut u32) } as usize;
     let kbuf = unsafe { core::slice::from_raw_parts_mut(0x0001_0000 as *mut u8, krnl_sz) };
     let kernel_entry = unsafe { kernel_loading::load_elf64(kbuf) }.unwrap() as usize;
 
     let kentry: HTMOSEntry = unsafe { core::mem::transmute(kernel_entry) };
-    kentry(boot_info as *const HTMOSBootInformation)
+    kentry(ADDR_BOOT_INFO as *const HTMOSBootInformation)
 }

@@ -112,12 +112,13 @@ macro_rules! pixel {
                         );
                 }
                 32 => {
-                    ($fb.add(($y * $pitch + $x * $format / 8) as usize) as *mut u32)
-                        .write_volatile(
-                            (($color.r as u32) << 16)
-                                | (($color.g as u32) << 8)
-                                | ($color.b as u32),
-                        );
+                    #[cfg(target_arch = "x86_64")]
+                    type S = u64;
+                    #[cfg(target_arch = "x86")]
+                    type S = u32;
+                    ($fb.add(($y * $pitch + $x * $format / 8) as S) as *mut u32).write_volatile(
+                        (($color.r as u32) << 16) | (($color.g as u32) << 8) | ($color.b as u32),
+                    );
                 }
                 _ => panic!("unknown fb bpp value of {{$format}} (WIP)"),
             }

@@ -515,10 +515,10 @@ pub(crate) fn get_mmap() -> ([(usize, usize); 256], usize) {
     }
     // Framebuffer
     if bi.framebuffer_addr > 0 {
-        mmap.rip_section(bi.framebuffer_addr, bi.framebuffer_size);
+        mmap.rip_section(bi.framebuffer_addr as usize, bi.framebuffer_size as usize);
     }
     // Memory Map
-    mmap.rip_section(bi.memory_map_addr, bi.memory_map_size);
+    mmap.rip_section(bi.memory_map_addr as usize, bi.memory_map_size as usize);
     // More Info pointer
     if bi.boot_mode == 1 {
         // SAFETY: UEFI turns in boot_mode as 1: more_info is the pointer to the SystemTable struct.
@@ -781,7 +781,11 @@ fn entry(info: *const HTMOSBootInformation) -> ! {
                 ptr += 0x10;
             }
             if ptr < 0x000FFFFF {
-                ptr
+                #[cfg(target_arch = "x86_64")]
+                type S = u64;
+                #[cfg(target_arch = "x86")]
+                type S = u32;
+                ptr as S
             } else {
                 panic!("Unable to find RSDP");
             }

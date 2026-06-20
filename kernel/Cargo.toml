@@ -11,7 +11,7 @@ panic = "abort"
 
 [dependencies]
 embedded-graphics = "0.8.2"
-htmos-boot-info = "0.9.1"
+htmos-boot-info = "0.9.3"
 lazy_static = { version = "1.5.0", features = ["spin_no_std"] }
 libm = { version = "0.2.16", default-features = false }
 logos = { version = "0.16.1", default-features = false, features = ["export_derive"] }

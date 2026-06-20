@@ -8,7 +8,19 @@ HTMOS is an Operating System, with an HTML parser and JavaScript engine (both ye
 
 This is a project never to be forgotten.
 
-# Latest Version: Pre-Alpha v0.3
+# NOTICE
+
+I am keeping this repo as is for now.  However, once I am able to create working bootloaders for different architectures and get AML parsing to work,
+I will rename this repo to rust-loader.  Afterwards, my main focus will be towards the kernel itself in a private matter.
+
+# Latest Version: Pre-Alpha v0.3.1
+
+- The BIOS Bootloader should now work for both 32- and 64-bit computers.
+    - Currently, it relies on CPUID to check.  If CPUID isn't supported, it will assume it is 32-bit.
+
+# Previous Versions:
+
+**Pre-Alpha v0.3**
 
 - Finally got a working BIOS Bootloader to work!
     - It currently only works under 32-bit mode.  You can run it on 64-bit computers, but expect a RSOD (red screen of death).
@@ -18,8 +30,6 @@ This is a project never to be forgotten.
     - I did a vec test with it, and it passed, so there ya go.
 - You'll also notice, there is a little bit of RSDP and ACPI parsing...not much though.
 - Also, this month marks a full year since I first pushed this project onto github.  Happy Anniversary!
-
-# Previous Versions:
 
 **Pre-Alpha v0.2.1**
 
