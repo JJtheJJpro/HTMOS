@@ -1,6 +1,6 @@
 #![no_std]
 #![no_main]
-#![feature(abi_x86_interrupt)]
+//#![feature(abi_x86_interrupt)]
 
 // SAFETY: given from linker.
 unsafe extern "C" {
@@ -743,7 +743,18 @@ extern "sysv64" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
 extern "cdecl" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
     entry(info)
 }
+#[cfg(target_arch = "aarch64")]
+#[unsafe(no_mangle)]
+extern "C" fn htmkrnl(info: *const HTMOSBootInformation) -> ! {
+    entry(info)
+}
 
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+fn entry(info: *const HTMOSBootInformation) -> ! {
+    loop {}
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn entry(info: *const HTMOSBootInformation) -> ! {
     if info.is_null() {
         panic!("no boot info given (boot info can't be set at addres 0x0)");

@@ -28,7 +28,7 @@ fn panic_handler(info: &PanicInfo) -> ! {
 
     loop {
         unsafe {
-            core::arch::asm!("hlt");
+            crate::halt();
         }
     }
 }
@@ -112,9 +112,9 @@ macro_rules! pixel {
                         );
                 }
                 32 => {
-                    #[cfg(target_arch = "x86_64")]
+                    #[cfg(target_pointer_width = "64")]
                     type S = u64;
-                    #[cfg(target_arch = "x86")]
+                    #[cfg(target_pointer_width = "32")]
                     type S = u32;
                     ($fb.add(($y * $pitch + $x * $format / 8) as S) as *mut u32).write_volatile(
                         (($color.r as u32) << 16) | (($color.g as u32) << 8) | ($color.b as u32),
