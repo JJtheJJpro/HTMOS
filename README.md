@@ -1,3 +1,7 @@
+Note: This is now an archived repo.  Any details here is now old information and will not be updated.
+
+Don't worry: I'm still working on HTMOS. I've moved the workspace elsewhere...
+
 ![HTMOS Logo](./logo.svg "HTMOS")
 
 # HTMOS
@@ -7,11 +11,6 @@ HTMOS stands for HyperText Markup Operating System.
 HTMOS is an Operating System, with an HTML parser and JavaScript engine (both yet to be implemented), that gives a wide variety of settings for any user, new or experienced.
 
 This is a project never to be forgotten.
-
-# NOTICE
-
-I am keeping this repo as is for now.  However, once I am able to create working bootloaders for different architectures and get AML parsing to work,
-I will rename this repo to rust-loader.  Afterwards, my main focus will be towards the kernel itself in a private matter.
 
 # Latest Version: Pre-Alpha v0.3.1
 
